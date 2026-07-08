@@ -1,0 +1,41 @@
+import { pipeline, type FeatureExtractionPipeline } from '@huggingface/transformers';
+
+export const DEFAULT_MODEL = 'Xenova/all-MiniLM-L6-v2';
+
+/**
+ * Wraps a Transformers.js feature-extraction pipeline.
+ * Models run locally via ONNX (WASM/CPU); weights are downloaded from the
+ * Hugging Face Hub on first use and cached on disk afterwards.
+ */
+export class Embedder {
+  private constructor(
+    readonly model: string,
+    readonly dimensions: number,
+    private readonly pipe: FeatureExtractionPipeline,
+  ) {}
+
+  static async create(model: string = DEFAULT_MODEL): Promise<Embedder> {
+    const pipe = await pipeline('feature-extraction', model);
+    // Probe once to discover the embedding dimension.
+    const probe = await pipe('dimension probe', { pooling: 'mean', normalize: true });
+    const dimensions = probe.dims[probe.dims.length - 1];
+    return new Embedder(model, dimensions, pipe);
+  }
+
+  /** Embed a batch of texts into L2-normalized vectors. */
+  async embed(texts: string[]): Promise<number[][]> {
+    if (texts.length === 0) return [];
+    const output = await this.pipe(texts, { pooling: 'mean', normalize: true });
+    const flat = output.data as Float32Array;
+    const vectors: number[][] = [];
+    for (let i = 0; i < texts.length; i++) {
+      vectors.push(Array.from(flat.subarray(i * this.dimensions, (i + 1) * this.dimensions)));
+    }
+    return vectors;
+  }
+
+  async embedOne(text: string): Promise<number[]> {
+    const [vector] = await this.embed([text]);
+    return vector;
+  }
+}
