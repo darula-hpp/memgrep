@@ -1,6 +1,6 @@
 {
   "name": "memgrep",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Searchable, local memory for coding agents. Ingest chats from Cursor, Claude Code, and Kiro; recall them anywhere via CLI or MCP. No servers, no API keys.",
   "keywords": [
     "semantic-search",

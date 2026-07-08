@@ -14,44 +14,41 @@ Grep your memory. memgrep gives your coding agents a global, searchable, fully l
 
 You solved a tricky auth bug with an agent three weeks ago, in another project, in a different editor. Today's agent has no idea that ever happened. The knowledge exists (your tools keep transcripts on disk) but it is siloed per project, per tool, and invisible to search.
 
-memgrep turns that pile of transcripts into one queryable memory. You ask in plain language ("how did we fix the recon variance?"), it finds the conversation where that happened, and either you or your agent pulls the whole thing back into context. Retrieval finds *which* chat matters; the agent swallows the whole thing.
+memgrep turns that pile of transcripts into one queryable memory. You ask in plain language ("how did we fix the recon variance?"), it finds the conversation where that happened, and either you or your agent pulls the whole thing back into context.
 
 ## Quickstart
 
 ```bash
 npm install -g memgrep
 memgrep ingest                                  # index your chat history (one-time scan, then incremental)
-memgrep recall "how did we fix the auth race?"  # search it
-memgrep copy                                    # top hit -> clipboard, paste anywhere
+memgrep recall "how did we fix the auth race?"  # search memory
+memgrep copy                                    # top hit -> clipboard
 ```
 
-Requires Node.js 18+. Native addons (hnswlib, better-sqlite3) build automatically on macOS/Linux/Windows. The embedding model (~25 MB) downloads once from the Hugging Face Hub on first run; everything after that is offline.
+Requires Node.js 18+. Native addons (hnswlib, better-sqlite3) build on install. The embedding model (~25 MB) downloads once on first run; everything after that is offline. Full command list below.
 
 ## Agent memory
 
+**Two ways to get things in:** `ingest` pulls chats from your tools (Cursor, Claude Code, Kiro). `remember` stores a note you write yourself (a decision, a postmortem, context no transcript captured).
+
+**Search and browse:** `recall` finds chats by meaning. `list` shows what's stored. `show` / `copy` read one chat back out.
+
 ```bash
-memgrep scan                   # what chats exist on this machine? (* = not ingested yet)
-memgrep scan --source kiro --new  # only Kiro chats I haven't ingested
-memgrep ingest                 # scan all supported tools across all projects
-memgrep ingest --source claude # or pick sources: cursor, claude, kiro
-memgrep ingest --pick 2,5      # ingest by number from the last scan
-memgrep ingest --last          # just my most recent chat (--last 3 for the last three)
-memgrep ingest --pick          # choose from an interactive menu of recent chats
-memgrep ingest ./chat.jsonl    # or one specific chat file (format auto-detected)
-memgrep ingest notes.md --project infra --title "Postgres tuning"  # any text/markdown works too
-memgrep list                   # what does my memory contain?
-memgrep recall "how did we fix the auth race?"
-memgrep show 42                # print a full remembered chat
-memgrep copy                   # copy the top hit of your last recall to the clipboard
-memgrep copy 42                # or copy a specific chat, ready to paste anywhere
-memgrep delete 42              # forget it
-memgrep delete --all           # wipe the whole memory (asks for confirmation; --yes to skip)
-memgrep remember "we chose better-sqlite3 over node:sqlite for Node 18 support"
+memgrep scan [--source kiro] [--new] [--last <n>]   # list on-disk chats (* = not ingested)
+memgrep ingest [--source cursor,claude,kiro]        # ingest from supported tools
+memgrep ingest --pick 2,5                           # ingest by number from last scan
+memgrep ingest --last [n]                           # most recent n chat(s)
+memgrep ingest <file...>                            # one file (format auto-detected)
+memgrep remember "we chose X over Y because Z"      # manual note (no transcript needed)
+memgrep list [--project <p>]
+memgrep recall "<query>" [-k <n>]
+memgrep show <id>
+memgrep copy [id]
+memgrep delete <id>
+memgrep delete --all [--yes]
 ```
 
-Memory lives in `~/.memgrep` (override with `MEMGREP_HOME`). Ingestion is idempotent: re-running `ingest` picks up new and updated chats and skips everything unchanged. Tool noise and system context are stripped, so only the actual conversation is embedded.
-
-The scan-then-pick workflow is the precise way to ingest: `memgrep scan` lists every chat memgrep can see, newest first, marking each as new (`*`), changed since ingest (`~`), or already ingested (blank). Then `memgrep ingest --pick 2,5` ingests exactly those numbers. Nothing is embedded until you say so.
+Memory lives in `~/.memgrep` (`MEMGREP_HOME` to override). Re-running `ingest` is idempotent: unchanged chats are skipped, grown chats are replaced. `scan` then `--pick` lets you see what's available before embedding anything.
 
 Supported history sources:
 
@@ -82,7 +79,7 @@ Memory is exposed through MCP, so it works in any MCP-capable agent: Cursor, Cla
 
 Config locations: Cursor `~/.cursor/mcp.json`, Claude Code `claude mcp add memgrep -- npx -y memgrep serve`, Kiro `~/.kiro/settings/mcp.json`, Antigravity via its MCP settings UI.
 
-The agent gets three tools: `recall(query)` to find relevant past chats, `get_chat(id)` to pull a full transcript into context, and `list_chats(project?)`. The model: retrieval finds *which* chat matters, then the agent swallows the whole thing. Cross-tool means cross-pollination: an agent in Kiro can recall how a Cursor agent fixed a bug last month.
+The agent gets three tools: `recall(query)`, `get_chat(id)`, and `list_chats(project?)`. Retrieval finds which chat matters; the agent pulls the full transcript into context. An agent in Kiro can recall a fix from a Cursor chat last month.
 
 ## File search
 
@@ -174,8 +171,8 @@ The mental model: **chunks are what's searched, chats are what's returned.**
 1. Transcripts are parsed into clean `User:/Assistant:` dialogue. Tool output, diffs, and system context are stripped; only the conversation is kept.
 2. That text is chunked at paragraph/sentence boundaries (~1000 chars, 200 overlap), and each chunk is embedded locally into a 384-dim vector (Transformers.js, mean pooling, L2-normalized). Titles, projects, and dates are stored as plain columns, not embedded.
 3. Vectors go into an HNSW index (cosine space); chat records and chunk text live in SQLite.
-4. A query is embedded the same way, the nearest chunks are retrieved (over-fetched 4x, then deduplicated to the best chunk per chat), and results come back with similarity scores and the exact passage that matched.
-5. Ingestion is idempotent by content hash: unchanged chats are skipped in milliseconds, grown chats are replaced in place.
+4. A query is embedded the same way, the nearest chunks are retrieved (over-fetched 4x, deduplicated to the best chunk per chat), and results come back with scores and the matching passage.
+5. Ingestion is idempotent by content hash; `remember` and `ingest` both land in the same searchable memory.
 
 Reliability: SQLite is the source of truth and the vector index is a rebuildable cache. If a process dies mid-ingest (Ctrl-C, crash, power loss), no chats are lost: the next command that needs vectors (`recall`, `ingest`, `serve`) detects the divergence, re-embeds whatever is missing, and repairs the index, printing progress while it does. Commands that never touch vectors (`list`, `show`, `copy`, `delete`, `scan`) skip the repair and stay fast no matter what state the index is in. Deleting `index.bin` entirely just triggers a full rebuild from the database.
 
