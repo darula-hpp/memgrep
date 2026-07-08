@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
+import pc from 'picocolors';
 import { VectorIndex } from './vector-index.js';
 
 const DEFAULT_INDEX_DIR = '.memgrep';
@@ -181,7 +182,7 @@ async function commandScan(flags: Record<string, string>): Promise<void> {
   for (let i = 0; i < shown.length; i++) {
     const { chat, status } = shown[i];
     const when = (chat.modifiedAt ?? chat.createdAt ?? '').slice(0, 16).replace('T', ' ');
-    const mark = status === 'ingested' ? ' ' : status === 'changed' ? '~' : '*';
+    const mark = status === 'ingested' ? ' ' : status === 'changed' ? pc.yellow('~') : pc.green('*');
     console.log(
       `${String(i + 1).padStart(2)}. ${mark} ${chat.title.slice(0, 66).padEnd(66)}  (${chat.sourceName}/${chat.project}, ${when})`,
     );
@@ -361,11 +362,17 @@ async function commandRecall(query: string, flags: Record<string, string>): Prom
     console.log('No matching chats in memory.');
     return;
   }
-  for (const hit of hits) {
-    console.log(`\n[${hit.id}] ${hit.title}  (${hit.project}, ${hit.createdAt.slice(0, 10)}, score ${hit.score.toFixed(3)})`);
-    console.log(`  ${hit.snippet.replace(/\s+/g, ' ').slice(0, 200)}`);
-  }
-  console.log('\nCopy one with: memgrep copy <id>  (or "memgrep copy" for the top hit)');
+  hits.forEach((hit, i) => {
+    const top = i === 0;
+    const id = top ? pc.bold(pc.green(`[${hit.id}]`)) : pc.cyan(`[${hit.id}]`);
+    const title = top ? pc.bold(hit.title) : hit.title;
+    const meta = pc.dim(`(${hit.tool}/${hit.project}, ${hit.createdAt.slice(0, 10)}, score ${hit.score.toFixed(3)})`);
+    console.log(`\n${id} ${title}  ${meta}`);
+    console.log(pc.dim(`  ${hit.snippet.replace(/\s+/g, ' ').slice(0, 200)}`));
+  });
+  console.log(
+    pc.dim(`\nCopy the ${pc.green('top hit')} with: memgrep copy  (or memgrep copy <id> for another)`),
+  );
 }
 
 async function commandCopy(idArg: string | undefined): Promise<void> {
