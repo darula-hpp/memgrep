@@ -1,7 +1,7 @@
 {
   "name": "memgrep",
   "version": "0.1.0",
-  "description": "Embedded semantic search for Node.js. Local Hugging Face embeddings (WASM) + HNSW retrieval. No servers, no API keys.",
+  "description": "Searchable, local memory for coding agents. Ingest chats from Cursor, Claude Code, and Kiro; recall them anywhere via CLI or MCP. No servers, no API keys.",
   "keywords": [
     "semantic-search",
     "vector-search",
@@ -10,9 +10,21 @@
     "hnsw",
     "transformers",
     "local-first",
-    "offline"
+    "offline",
+    "mcp",
+    "agent-memory",
+    "cursor",
+    "claude-code"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/darula-hpp/megrep.git"
+  },
+  "homepage": "https://github.com/darula-hpp/megrep#readme",
+  "bugs": {
+    "url": "https://github.com/darula-hpp/megrep/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
