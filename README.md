@@ -8,9 +8,7 @@ Grep your memory. memgrep gives your coding agents a global, searchable, fully l
 
 ## Demo
 
-<video src="demo/output.mp4" controls width="720"></video>
-
-[Watch the demo](https://github.com/darula-hpp/megrep/blob/main/demo/output.mp4)
+![memgrep demo](demo/preview.gif)
 
 ## Why
 
