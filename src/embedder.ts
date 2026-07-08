@@ -1,6 +1,17 @@
-import { pipeline, type FeatureExtractionPipeline } from '@huggingface/transformers';
+import { homedir } from 'node:os';
+import path from 'node:path';
+import { env, pipeline, type FeatureExtractionPipeline } from '@huggingface/transformers';
 
 export const DEFAULT_MODEL = 'Xenova/all-MiniLM-L6-v2';
+
+// By default Transformers.js caches models inside its own node_modules folder,
+// which is not writable when the package is installed globally (EACCES on
+// `npm install -g`). Cache in the user's home instead; this also lets the
+// model survive package upgrades. MEMGREP_HOME keeps everything in one place.
+env.cacheDir = path.join(
+  process.env.MEMGREP_HOME ?? path.join(homedir(), '.memgrep'),
+  'models',
+);
 
 /**
  * Wraps a Transformers.js feature-extraction pipeline.
