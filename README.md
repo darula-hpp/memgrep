@@ -6,6 +6,12 @@ Grep your memory. memgrep gives your coding agents a global, searchable, fully l
 - **Fully local.** Embeddings run on-device via [Transformers.js](https://github.com/huggingface/transformers.js) (Hugging Face models, ONNX/WASM). No API keys, no cloud, no data leaving your machine. That matters, because your chat history contains your code.
 - **Real infrastructure, zero servers.** SQLite for records, [hnswlib](https://github.com/yoshoku/hnswlib-node) HNSW for fast approximate nearest-neighbor retrieval. One folder is a complete, portable memory.
 
+## Demo
+
+<video src="demo/output.mp4" controls width="720"></video>
+
+[Watch the demo](https://github.com/darula-hpp/megrep/blob/main/demo/output.mp4)
+
 ## Why
 
 You solved a tricky auth bug with an agent three weeks ago, in another project, in a different editor. Today's agent has no idea that ever happened. The knowledge exists (your tools keep transcripts on disk) but it is siloed per project, per tool, and invisible to search.
