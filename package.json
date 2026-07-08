@@ -19,11 +19,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/darula-hpp/megrep.git"
+    "url": "git+https://github.com/darula-hpp/memgrep.git"
   },
-  "homepage": "https://github.com/darula-hpp/megrep#readme",
+  "homepage": "https://github.com/darula-hpp/memgrep#readme",
   "bugs": {
-    "url": "https://github.com/darula-hpp/megrep/issues"
+    "url": "https://github.com/darula-hpp/memgrep/issues"
   },
   "type": "module",
   "main": "./dist/index.js",
