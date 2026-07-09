@@ -69,13 +69,19 @@ interface ChatRow {
  * Global chat memory: SQLite is the source of truth (chats, chunk text,
  * config), the HNSW index is a rebuildable search accelerator for the vectors.
  */
+/** Default embedding width for {@link DEFAULT_MODEL}; used before the model is loaded. */
+const DEFAULT_DIMENSIONS = 384;
+
 export class MemoryStore {
   private constructor(
     private readonly dir: string,
     private readonly db: DatabaseType.Database,
-    private readonly embedder: Embedder,
+    private readonly model: string,
+    private embedder: Embedder | null,
     private hnsw: HierarchicalNSWType,
     private nextLabel: number,
+    /** When true, reconcile or rebuild runs on the first vector-touching operation. */
+    private healOnFirstVectorOp: boolean,
   ) {}
 
   /**
@@ -117,22 +123,55 @@ export class MemoryStore {
 
     const storedModel = getMeta(db, 'model');
     const model = storedModel ?? DEFAULT_MODEL;
-    const embedder = await Embedder.create(model);
     if (!storedModel) setMeta(db, 'model', model);
+    const dimensions = Number(getMeta(db, 'dimensions') ?? DEFAULT_DIMENSIONS);
 
     const indexPath = path.join(dir, INDEX_FILE);
-    const hnsw = new HierarchicalNSW('cosine', embedder.dimensions);
+    const hnsw = new HierarchicalNSW('cosine', dimensions);
 
-    const store = new MemoryStore(dir, db, embedder, hnsw, 0);
+    const store = new MemoryStore(dir, db, model, null, hnsw, 0, false);
     if (existsSync(indexPath)) {
       await hnsw.readIndex(indexPath);
-      await store.reconcile(heal);
+      store.deriveNextLabel(hnsw.getCurrentCount());
+      if (heal) store.healOnFirstVectorOp = store.indexNeedsRepair();
     } else {
       hnsw.initIndex(1024);
       store.deriveNextLabel(0);
-      if (heal) await store.rebuildFromDb();
+      if (heal) {
+        const { n } = db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number };
+        store.healOnFirstVectorOp = n > 0;
+      }
     }
     return store;
+  }
+
+  private indexNeedsRepair(): boolean {
+    const indexCount = this.hnsw.getCurrentCount();
+    const row = this.db
+      .prepare('SELECT 1 AS ok FROM chunks WHERE label >= ? LIMIT 1')
+      .get(indexCount) as { ok: number } | undefined;
+    return row !== undefined;
+  }
+
+  private async ensureEmbedder(): Promise<Embedder> {
+    if (this.embedder) return this.embedder;
+    this.embedder = await Embedder.create(this.model);
+    setMeta(this.db, 'dimensions', String(this.embedder.dimensions));
+    return this.embedder;
+  }
+
+  /** Load the embedding model if needed, then heal the index if that was deferred at open. */
+  private async ensureVectorsReady(): Promise<Embedder> {
+    const embedder = await this.ensureEmbedder();
+    if (!this.healOnFirstVectorOp) return embedder;
+    this.healOnFirstVectorOp = false;
+    const indexPath = path.join(this.dir, INDEX_FILE);
+    if (existsSync(indexPath)) {
+      await this.reconcile(true);
+    } else {
+      await this.rebuildFromDb();
+    }
+    return embedder;
   }
 
   private deriveNextLabel(indexCount: number): void {
@@ -176,6 +215,7 @@ export class MemoryStore {
    * A chat with the same `source` but different content is replaced.
    */
   async addChat(input: ChatInput): Promise<number | null> {
+    await this.ensureVectorsReady();
     const hash = sha256(input.content);
     const existing = input.source
       ? (this.db.prepare('SELECT id, hash FROM chats WHERE source = ?').get(input.source) as
@@ -267,7 +307,8 @@ export class MemoryStore {
     const total = (this.db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }).n;
     if (total === 0) return [];
 
-    const vector = await this.embedder.embedOne(query);
+    const embedder = await this.ensureVectorsReady();
+    const vector = await embedder.embedOne(query);
     const fetchK = Math.min(k * 4, total);
     const { neighbors, distances } = this.hnsw.searchKnn(vector, fetchK);
 
@@ -343,9 +384,10 @@ export class MemoryStore {
   }
 
   private async embedBatched(texts: string[]): Promise<number[][]> {
+    const embedder = await this.ensureEmbedder();
     const vectors: number[][] = [];
     for (let i = 0; i < texts.length; i += EMBED_BATCH) {
-      vectors.push(...(await this.embedder.embed(texts.slice(i, i + EMBED_BATCH))));
+      vectors.push(...(await embedder.embed(texts.slice(i, i + EMBED_BATCH))));
     }
     return vectors;
   }
