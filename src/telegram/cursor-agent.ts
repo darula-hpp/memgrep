@@ -1,18 +1,31 @@
 import { existsSync } from 'node:fs';
 import { Agent, CursorAgentError, type SDKAgent } from '@cursor/sdk';
-import { expandHomePath, updateTelegramConfig } from './config.js';
+import {
+  expandHomePath,
+  formatWorkspaceList,
+  normalizeWorkspaces,
+  resolveWorkspaceRef,
+  updateTelegramConfig,
+  workspaceNameFromPath,
+  type TelegramWorkspace,
+} from './config.js';
 
 export type CursorAgentStatus = {
   agentId?: string;
   cwd: string;
   model: string;
+  workspaces: TelegramWorkspace[];
 };
 
 /** Mockable surface used by the Telegram bot. */
 export interface CursorAgentSession {
   send(text: string): Promise<string>;
   reset(): Promise<void>;
-  setCwd(cwd: string): Promise<string>;
+  setCwd(cwd: string, name?: string): Promise<string>;
+  listWorkspaces(): string;
+  switchWorkspace(ref: string): Promise<string>;
+  addWorkspace(name: string, dir: string): Promise<string>;
+  removeWorkspace(name: string): Promise<string>;
   status(): CursorAgentStatus;
   close(): Promise<void>;
 }
@@ -23,22 +36,25 @@ export type CursorAgentPoolOptions = {
   model: string;
   mcpUrl: string;
   mcpToken?: string;
+  workspaces?: TelegramWorkspace[];
   /** Persist cwd/model changes back to telegram.json when true (default). */
   persistConfig?: boolean;
 };
 
 /**
  * One durable local Cursor agent per Telegram user id.
- * Free-text turns call send(); /new resets; /cwd recreates against a new folder.
+ * Free-text turns call send(); /new resets; /ws and /cwd switch project folders.
  */
 export class CursorAgentPool {
   private readonly sessions = new Map<number, CursorAgentHandle>();
   private cwd: string;
   private model: string;
+  private workspaces: TelegramWorkspace[];
 
   constructor(private readonly options: CursorAgentPoolOptions) {
     this.cwd = options.cwd;
     this.model = options.model;
+    this.workspaces = normalizeWorkspaces(options.workspaces, options.cwd);
   }
 
   sessionFor(userId: number): CursorAgentSession {
@@ -51,7 +67,7 @@ export class CursorAgentPool {
   }
 
   status(): CursorAgentStatus {
-    return { cwd: this.cwd, model: this.model };
+    return { cwd: this.cwd, model: this.model, workspaces: this.workspaces };
   }
 
   async close(): Promise<void> {
@@ -81,17 +97,69 @@ export class CursorAgentPool {
   }
 
   /** @internal */
-  async setCwd(cwd: string): Promise<string> {
+  async setCwd(cwd: string, name?: string): Promise<string> {
     const resolved = expandHomePath(cwd);
     if (!existsSync(resolved)) {
       throw new Error(`Directory does not exist: ${resolved}`);
     }
     this.cwd = resolved;
+    const label = name?.trim() || workspaceNameFromPath(resolved);
+    const withoutPath = this.workspaces.filter((w) => w.path !== resolved);
+    const withoutName = withoutPath.filter((w) => w.name.toLowerCase() !== label.toLowerCase());
+    this.workspaces = normalizeWorkspaces([...withoutName, { name: label, path: resolved }], resolved);
     if (this.options.persistConfig !== false) {
-      updateTelegramConfig({ cwd: resolved });
+      updateTelegramConfig({ cwd: resolved, workspaces: this.workspaces });
     }
     await this.resetAll();
     return resolved;
+  }
+
+  /** @internal */
+  listWorkspacesText(): string {
+    return formatWorkspaceList(this.workspaces, this.cwd);
+  }
+
+  /** @internal */
+  async switchWorkspace(ref: string): Promise<string> {
+    const ws = resolveWorkspaceRef(ref, this.workspaces);
+    if (!ws) {
+      throw new Error(`Unknown workspace "${ref}". Try /ws to list.`);
+    }
+    await this.setCwd(ws.path, ws.name);
+    return ws.name;
+  }
+
+  /** @internal */
+  async addWorkspace(name: string, dir: string): Promise<TelegramWorkspace> {
+    const label = name.trim();
+    const resolved = expandHomePath(dir);
+    if (!label) throw new Error('Workspace name is required.');
+    if (!existsSync(resolved)) {
+      throw new Error(`Directory does not exist: ${resolved}`);
+    }
+    const rest = this.workspaces.filter((w) => w.name.toLowerCase() !== label.toLowerCase());
+    this.workspaces = normalizeWorkspaces([...rest, { name: label, path: resolved }], this.cwd);
+    if (this.options.persistConfig !== false) {
+      updateTelegramConfig({ workspaces: this.workspaces });
+    }
+    return { name: label, path: resolved };
+  }
+
+  /** @internal */
+  async removeWorkspace(name: string): Promise<void> {
+    const label = name.trim().toLowerCase();
+    const next = this.workspaces.filter((w) => w.name.toLowerCase() !== label);
+    if (next.length === this.workspaces.length) {
+      throw new Error(`No workspace named "${name}".`);
+    }
+    const removed = this.workspaces.find((w) => w.name.toLowerCase() === label);
+    this.workspaces = next;
+    if (removed && removed.path === this.cwd && next.length > 0) {
+      // Stay on cwd even if removed from list — just drop the name entry.
+    }
+    if (this.options.persistConfig !== false) {
+      updateTelegramConfig({ workspaces: this.workspaces });
+    }
   }
 
   /** @internal */
@@ -109,6 +177,11 @@ export class CursorAgentPool {
   getModel(): string {
     return this.model;
   }
+
+  /** @internal */
+  getWorkspaces(): TelegramWorkspace[] {
+    return this.workspaces;
+  }
 }
 
 class CursorAgentHandle implements CursorAgentSession {
@@ -125,6 +198,7 @@ class CursorAgentHandle implements CursorAgentSession {
       agentId: this.agent?.agentId,
       cwd: this.pool.getCwd(),
       model: this.pool.getModel(),
+      workspaces: this.pool.getWorkspaces(),
     };
   }
 
@@ -150,8 +224,27 @@ class CursorAgentHandle implements CursorAgentSession {
     await this.disposeAgent();
   }
 
-  async setCwd(cwd: string): Promise<string> {
-    return this.pool.setCwd(cwd);
+  async setCwd(cwd: string, name?: string): Promise<string> {
+    return this.pool.setCwd(cwd, name);
+  }
+
+  listWorkspaces(): string {
+    return this.pool.listWorkspacesText();
+  }
+
+  async switchWorkspace(ref: string): Promise<string> {
+    const name = await this.pool.switchWorkspace(ref);
+    return `Switched to ${name} → ${this.pool.getCwd()} (new Cursor conversation).`;
+  }
+
+  async addWorkspace(name: string, dir: string): Promise<string> {
+    const ws = await this.pool.addWorkspace(name, dir);
+    return `Added workspace ${ws.name}\n${ws.path}`;
+  }
+
+  async removeWorkspace(name: string): Promise<string> {
+    await this.pool.removeWorkspace(name);
+    return `Removed workspace ${name}.`;
   }
 
   async close(): Promise<void> {

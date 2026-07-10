@@ -121,9 +121,13 @@ memgrep telegram status   # show redacted tokens + cwd/model
 Leave `memgrep telegram` running. On your phone:
 
 - free text / `/ask …` → Cursor agent (edits/runs in the configured cwd)
-- `/new` → fresh Cursor conversation
-- `/cwd [path]` → show or change project directory
-- `/status` → cwd, model, agent id
+- `/ws` → list saved workspaces (`*` = current)
+- `/ws 2` or `/ws myapp` → switch workspace (starts a fresh Cursor conversation)
+- `/ws add <name> <path>` → save another project folder
+- `/ws rm <name>` → remove a saved workspace
+- `/cwd [path]` → show list or switch by full filesystem path
+- `/new` → fresh Cursor conversation (same workspace)
+- `/status` → cwd, model, agent id, workspaces
 - `/recall <query>` / `/list` / `/show <id>` → memory shortcuts (without going through Cursor)
 - `/help` → commands
 

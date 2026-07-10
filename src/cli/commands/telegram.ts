@@ -77,6 +77,7 @@ async function startBot(opts: { noServer?: boolean; mcpUrl?: string }): Promise<
     model: resolved.model,
     mcpUrl,
     mcpToken: resolved.mcpToken,
+    workspaces: resolved.workspaces,
   });
 
   console.error(`Cursor agent cwd: ${resolved.cwd} (model ${resolved.model})`);
@@ -151,6 +152,11 @@ export function registerTelegramCommand(program: Command): void {
         }
         console.log(`cwd         : ${file.cwd ?? '(unset)'}`);
         console.log(`model       : ${file.model ?? '(default)'}`);
+        if (file.workspaces?.length) {
+          console.log(
+            `workspaces  : ${file.workspaces.map((w) => w.name).join(', ')}`,
+          );
+        }
         console.log(`Updated     : ${file.updatedAt}`);
       }
       if (resolved) {

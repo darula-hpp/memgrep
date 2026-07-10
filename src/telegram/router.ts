@@ -9,8 +9,12 @@ Cursor:
   <message>          send to Cursor
   /ask <message>     same as free text
   /new               start a fresh Cursor conversation
-  /cwd [path]        show or change the project directory
-  /status            agent cwd + model
+  /ws                list workspaces (* = current)
+  /ws <n|name>       switch workspace
+  /ws add <name> <path>
+  /ws rm <name>      remove a saved workspace
+  /cwd [path]        show or switch by full path
+  /status            cwd + model + workspaces
 
 Memory shortcuts:
   /recall <query>    semantic search
@@ -41,6 +45,11 @@ export function parseTelegramCommand(text: string | undefined): TelegramCommand 
 
   if (raw === '/status') {
     return { kind: 'status' };
+  }
+
+  const wsMatch = raw.match(/^\/(?:ws|workspace|workspaces)(?:@\w+)?(?:\s+(.+))?$/i);
+  if (wsMatch) {
+    return parseWorkspaceCommand(wsMatch[1]?.trim());
   }
 
   const cwdMatch = raw.match(/^\/cwd(?:@\w+)?(?:\s+(.+))?$/i);
@@ -75,4 +84,20 @@ export function parseTelegramCommand(text: string | undefined): TelegramCommand 
   }
 
   return { kind: 'agent', text: raw };
+}
+
+function parseWorkspaceCommand(args: string | undefined): TelegramCommand {
+  if (!args) return { kind: 'ws', action: 'list' };
+
+  const addMatch = args.match(/^add\s+(\S+)\s+(.+)$/i);
+  if (addMatch) {
+    return { kind: 'ws', action: 'add', name: addMatch[1], path: addMatch[2].trim() };
+  }
+
+  const rmMatch = args.match(/^(?:rm|remove|delete)\s+(\S+)$/i);
+  if (rmMatch) {
+    return { kind: 'ws', action: 'remove', name: rmMatch[1] };
+  }
+
+  return { kind: 'ws', action: 'switch', ref: args };
 }

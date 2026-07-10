@@ -1,5 +1,6 @@
 import type { ToolResult } from '../memory/tools.js';
 import type { CursorAgentSession } from './cursor-agent.js';
+import type { TelegramWorkspace } from './config.js';
 
 /** Pluggable memory backend for Telegram (local tools or remote MCP). */
 export interface MemoryAccess {
@@ -16,7 +17,7 @@ export type TelegramBotConfig = {
   /** When set, free text /ask go to Cursor. */
   cursor?: {
     sessionFor(userId: number): CursorAgentSession;
-    status(): { cwd: string; model: string };
+    status(): { cwd: string; model: string; workspaces: TelegramWorkspace[] };
   };
 };
 
@@ -28,6 +29,10 @@ export type TelegramCommand =
   | { kind: 'agent'; text: string }
   | { kind: 'new' }
   | { kind: 'cwd'; path?: string }
+  | { kind: 'ws'; action: 'list' }
+  | { kind: 'ws'; action: 'switch'; ref: string }
+  | { kind: 'ws'; action: 'add'; name: string; path: string }
+  | { kind: 'ws'; action: 'remove'; name: string }
   | { kind: 'status' }
   | { kind: 'ignored' };
 

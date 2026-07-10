@@ -6,10 +6,13 @@ import { isAllowedUser, parseAllowedUserIds } from '../allowlist.js';
 import { telegramMethodUrl } from '../api.js';
 import {
   DEFAULT_CURSOR_MODEL,
+  formatWorkspaceList,
   maybeMigrateEnvToConfig,
+  normalizeWorkspaces,
   readTelegramConfig,
   redactToken,
   resolveTelegramConfig,
+  resolveWorkspaceRef,
   writeTelegramConfig,
 } from '../config.js';
 import { helpText, parseTelegramCommand } from '../router.js';
@@ -142,6 +145,17 @@ describe('telegram config file', () => {
   it('redacts tokens for status output', () => {
     expect(redactToken('123456:ABCDEFGHIJKLMNOP')).toMatch(/^123456…/);
   });
+
+  it('normalizes workspaces and resolves refs', () => {
+    const list = normalizeWorkspaces(
+      [{ name: 'api', path: '/tmp/api' }, { name: 'web', path: '/tmp/web' }],
+      '/tmp/api',
+    );
+    expect(list.map((w) => w.name)).toEqual(['api', 'web']);
+    expect(resolveWorkspaceRef('2', list)?.name).toBe('web');
+    expect(resolveWorkspaceRef('api', list)?.path).toBe('/tmp/api');
+    expect(formatWorkspaceList(list, '/tmp/api')).toContain('api *');
+  });
 });
 
 describe('parseTelegramCommand', () => {
@@ -163,6 +177,20 @@ describe('parseTelegramCommand', () => {
     expect(parseTelegramCommand('/reset')).toEqual({ kind: 'new' });
     expect(parseTelegramCommand('/cwd')).toEqual({ kind: 'cwd', path: undefined });
     expect(parseTelegramCommand('/cwd ~/dev/app')).toEqual({ kind: 'cwd', path: '~/dev/app' });
+    expect(parseTelegramCommand('/ws')).toEqual({ kind: 'ws', action: 'list' });
+    expect(parseTelegramCommand('/ws 2')).toEqual({ kind: 'ws', action: 'switch', ref: '2' });
+    expect(parseTelegramCommand('/ws api')).toEqual({ kind: 'ws', action: 'switch', ref: 'api' });
+    expect(parseTelegramCommand('/ws add web ~/dev/web')).toEqual({
+      kind: 'ws',
+      action: 'add',
+      name: 'web',
+      path: '~/dev/web',
+    });
+    expect(parseTelegramCommand('/ws rm api')).toEqual({
+      kind: 'ws',
+      action: 'remove',
+      name: 'api',
+    });
     expect(parseTelegramCommand('/status')).toEqual({ kind: 'status' });
   });
 
@@ -202,6 +230,7 @@ describe('dispatchCommand', () => {
   it('routes free text to a mocked Cursor session', async () => {
     const sent: string[] = [];
     let cwd = '/tmp/demo';
+    let workspaces = [{ name: 'demo', path: '/tmp/demo' }];
     const session: CursorAgentSession = {
       async send(text) {
         sent.push(text);
@@ -210,19 +239,35 @@ describe('dispatchCommand', () => {
       async reset() {
         sent.push('RESET');
       },
-      async setCwd(next) {
+      async setCwd(next, name) {
         cwd = next;
+        workspaces = [{ name: name ?? 'demo', path: next }];
         return cwd;
       },
+      listWorkspaces() {
+        return `Workspaces:\n1. ${workspaces[0]?.name ?? 'none'}`;
+      },
+      async switchWorkspace(ref) {
+        sent.push(`SWITCH:${ref}`);
+        return `Switched to ${ref}`;
+      },
+      async addWorkspace(name, dir) {
+        workspaces.push({ name, path: dir });
+        return `Added workspace ${name}`;
+      },
+      async removeWorkspace(name) {
+        workspaces = workspaces.filter((w) => w.name !== name);
+        return `Removed workspace ${name}.`;
+      },
       status() {
-        return { agentId: 'agent-test', cwd, model: 'composer-2.5' };
+        return { agentId: 'agent-test', cwd, model: 'composer-2.5', workspaces };
       },
       async close() {},
     };
 
     const cursor = {
       sessionFor: () => session,
-      status: () => ({ cwd, model: 'composer-2.5' }),
+      status: () => ({ cwd, model: 'composer-2.5', workspaces }),
     };
 
     expect(
@@ -246,6 +291,26 @@ describe('dispatchCommand', () => {
       }),
     ).toContain('fresh Cursor');
     expect(sent).toContain('RESET');
+
+    expect(
+      await dispatchCommand({
+        access,
+        cursor,
+        userId: 1,
+        command: { kind: 'ws', action: 'list' },
+        text: '/ws',
+      }),
+    ).toContain('demo');
+
+    expect(
+      await dispatchCommand({
+        access,
+        cursor,
+        userId: 1,
+        command: { kind: 'ws', action: 'switch', ref: '2' },
+        text: '/ws 2',
+      }),
+    ).toContain('Switched');
 
     const project = await mkdtemp(path.join(tmpdir(), 'memgrep-cwd-'));
     try {
@@ -281,6 +346,7 @@ describe('splitForTelegram', () => {
 describe('helpText', () => {
   it('mentions Cursor and memory commands', () => {
     const text = helpText();
+    expect(text).toContain('/ws');
     expect(text).toContain('/ask');
     expect(text).toContain('/new');
     expect(text).toContain('/list');
