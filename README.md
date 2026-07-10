@@ -64,7 +64,9 @@ New sources are pluggable: implement the two-method `TranscriptSource` interface
 
 ### Give your agents access (MCP)
 
-Memory is exposed through MCP, so it works in any MCP-capable agent: Cursor, Claude Code, Kiro, Antigravity, Windsurf, Codex, and whatever ships next. Ingest with the CLI, recall from anywhere. Register the server once per tool:
+Memory is exposed through MCP, so it works in any MCP-capable agent: Cursor, Claude Code, Kiro, Antigravity, Windsurf, Codex, and whatever ships next. Ingest with the CLI, recall from anywhere. Register the server once per tool.
+
+**No global install needed** (recommended — always picks up the latest published version):
 
 ```json
 {
@@ -77,7 +79,20 @@ Memory is exposed through MCP, so it works in any MCP-capable agent: Cursor, Cla
 }
 ```
 
-Config locations: Cursor `~/.cursor/mcp.json`, Claude Code `claude mcp add memgrep -- npx -y memgrep serve`, Kiro `~/.kiro/settings/mcp.json`, Antigravity via its MCP settings UI.
+**Already installed globally** (`npm install -g memgrep`):
+
+```json
+{
+  "mcpServers": {
+    "memgrep": {
+      "command": "memgrep",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Config locations: Cursor `~/.cursor/mcp.json`, Claude Code `claude mcp add memgrep -- npx -y memgrep serve` (or `claude mcp add memgrep -- memgrep serve` if global), Kiro `~/.kiro/settings/mcp.json`, Antigravity via its MCP settings UI.
 
 The agent gets three tools: `recall(query)`, `get_chat(id)`, and `list_chats(project?)`. Retrieval finds which chat matters; the agent pulls the full transcript into context. An agent in Kiro can recall a fix from a Cursor chat last month.
 

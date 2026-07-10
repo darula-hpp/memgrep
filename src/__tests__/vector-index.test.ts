@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { VectorIndex } from '../src/vector-index.js';
+import { VectorIndex } from '../vector-index.js';
 
 // Integration test: downloads the embedding model on first run (cached afterwards).
 describe('VectorIndex', () => {

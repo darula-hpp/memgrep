@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chunkText } from '../src/chunker.js';
+import { chunkText } from '../chunker.js';
 
 describe('chunkText', () => {
   it('returns empty array for empty input', () => {
@@ -21,7 +21,6 @@ describe('chunkText', () => {
       expect(chunk.length).toBeLessThanOrEqual(1000);
       expect(chunk.length).toBeGreaterThan(0);
     }
-    // Every part of the original text should be covered.
     expect(chunks.join(' ')).toContain('quick brown fox');
   });
 

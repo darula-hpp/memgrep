@@ -2,8 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parseClaudeTranscript, parseCursorTranscript, parseKiroSession } from '../src/memory/ingest.js';
-import { MemoryStore } from '../src/memory/store.js';
+import { parseClaudeTranscript, parseCursorTranscript, parseKiroSession } from '../ingest.js';
+import { MemoryStore } from '../store.js';
 
 describe('parseCursorTranscript', () => {
   it('extracts user queries and assistant text, ignoring tool calls', () => {
@@ -88,7 +88,7 @@ describe('ingestFile format detection', () => {
 
   it('detects Cursor JSONL and plain markdown', async () => {
     const { writeFile } = await import('node:fs/promises');
-    const { ingestFile } = await import('../src/memory/ingest.js');
+    const { ingestFile } = await import('../ingest.js');
 
     const cursorFile = path.join(dir, 'chat.jsonl');
     await writeFile(
@@ -96,11 +96,12 @@ describe('ingestFile format detection', () => {
       JSON.stringify({
         role: 'user',
         message: { content: [{ type: 'text', text: '<user_query>fix the flaky test</user_query>' }] },
-      }) + '\n' +
-      JSON.stringify({
-        role: 'assistant',
-        message: { content: [{ type: 'text', text: 'The test raced the server startup; added a wait.' }] },
-      }),
+      }) +
+        '\n' +
+        JSON.stringify({
+          role: 'assistant',
+          message: { content: [{ type: 'text', text: 'The test raced the server startup; added a wait.' }] },
+        }),
     );
     const cursor = await ingestFile(store, cursorFile);
     expect(cursor.tool).toBe('cursor');
@@ -114,7 +115,6 @@ describe('ingestFile format detection', () => {
     expect(store.getChat(md.id!)?.title).toBe('Postgres tuning notes');
     expect(store.getChat(md.id!)?.project).toBe('infra');
 
-    // Re-ingesting the same file is a no-op.
     expect((await ingestFile(store, mdFile, { project: 'infra' })).id).toBeNull();
   });
 });
@@ -162,12 +162,14 @@ describe('MemoryStore', () => {
     await store.addChat({
       title: 'Fix auth race condition',
       project: 'api',
-      content: 'User: the login randomly fails\n\nAssistant: The token refresh has a race condition; we fixed it with a mutex around refresh.',
+      content:
+        'User: the login randomly fails\n\nAssistant: The token refresh has a race condition; we fixed it with a mutex around refresh.',
     });
     await store.addChat({
       title: 'Set up CI pipeline',
       project: 'web',
-      content: 'User: add github actions\n\nAssistant: Created a workflow that runs vitest and deploys on tag push.',
+      content:
+        'User: add github actions\n\nAssistant: Created a workflow that runs vitest and deploys on tag push.',
     });
 
     expect(store.listChats()).toHaveLength(2);
@@ -182,7 +184,8 @@ describe('MemoryStore', () => {
     const input = {
       title: 'Fix auth race condition',
       project: 'api',
-      content: 'User: the login randomly fails\n\nAssistant: The token refresh has a race condition; we fixed it with a mutex around refresh.',
+      content:
+        'User: the login randomly fails\n\nAssistant: The token refresh has a race condition; we fixed it with a mutex around refresh.',
     };
     expect(await store.addChat(input)).toBeNull();
     expect(store.listChats()).toHaveLength(2);
@@ -208,7 +211,6 @@ describe('MemoryStore', () => {
     expect(s.deleteAll()).toBe(2);
     expect(s.listChats()).toHaveLength(0);
     expect(await s.search('alpha beta', 3)).toHaveLength(0);
-    // Store remains usable after a wipe.
     const id = await s.addChat({ title: 'c', project: 'p', content: 'Assistant: fresh start after wipe.' });
     expect(id).not.toBeNull();
     s.close();
