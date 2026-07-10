@@ -17,6 +17,7 @@ describe('createProgram', () => {
       'search',
       'serve',
       'show',
+      'telegram',
     ]);
   });
 
@@ -42,6 +43,27 @@ describe('createProgram', () => {
     expect(del).toBeDefined();
     const optionFlags = del!.options.map((o) => o.flags);
     expect(optionFlags).toEqual(expect.arrayContaining(['--all', '--yes']));
+  });
+
+  it('exposes expected serve options', () => {
+    const program = createProgram();
+    const serve = program.commands.find((c) => c.name() === 'serve');
+    expect(serve).toBeDefined();
+    const optionFlags = serve!.options.map((o) => o.flags);
+    expect(optionFlags).toEqual(
+      expect.arrayContaining(['--http', '--host <host>', '--port <n>', '--token <token>']),
+    );
+  });
+
+  it('registers telegram command with setup/status and --no-server', () => {
+    const program = createProgram();
+    const tg = program.commands.find((c) => c.name() === 'telegram');
+    expect(tg).toBeDefined();
+    expect(tg!.options.map((o) => o.flags)).toEqual(
+      expect.arrayContaining(['--no-server', '--mcp-url <url>']),
+    );
+    const sub = tg!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual(['setup', 'status']);
   });
 
   it('prints help for --help without throwing', async () => {

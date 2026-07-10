@@ -10,6 +10,7 @@ import { registerScanCommand } from './commands/scan.js';
 import { registerSearchCommand } from './commands/search.js';
 import { registerServeCommand } from './commands/serve.js';
 import { registerShowCommand } from './commands/show.js';
+import { registerTelegramCommand } from './commands/telegram.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -35,6 +36,7 @@ export function createProgram(): Command {
   registerDeleteCommand(program);
   registerRememberCommand(program);
   registerServeCommand(program);
+  registerTelegramCommand(program);
 
   return program;
 }

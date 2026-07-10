@@ -46,6 +46,8 @@ memgrep show <id>
 memgrep copy [id]
 memgrep delete <id>
 memgrep delete --all [--yes]
+memgrep serve [--http] [--host 127.0.0.1] [--port 3921]
+memgrep telegram                 # Cursor agent from your phone (+ memgrep MCP)
 ```
 
 Memory lives in `~/.memgrep` (`MEMGREP_HOME` to override). Re-running `ingest` is idempotent: unchanged chats are skipped, grown chats are replaced. `scan` then `--pick` lets you see what's available before embedding anything.
@@ -95,6 +97,43 @@ Memory is exposed through MCP, so it works in any MCP-capable agent: Cursor, Cla
 Config locations: Cursor `~/.cursor/mcp.json`, Claude Code `claude mcp add memgrep -- npx -y memgrep serve` (or `claude mcp add memgrep -- memgrep serve` if global), Kiro `~/.kiro/settings/mcp.json`, Antigravity via its MCP settings UI.
 
 The agent gets three tools: `recall(query)`, `get_chat(id)`, and `list_chats(project?)`. Retrieval finds which chat matters; the agent pulls the full transcript into context. An agent in Kiro can recall a fix from a Cursor chat last month.
+
+### Telegram (from your phone)
+
+Chat with a **local Cursor agent** from Telegram. You do **not** need to be on the same Wi‑Fi — Telegram’s cloud reaches a long-polling process on your Mac. Usage is billed against your **Cursor plan** (same token pool as the IDE; tagged SDK in the dashboard). You need a [`CURSOR_API_KEY`](https://cursor.com/dashboard/integrations).
+
+```bash
+memgrep telegram
+```
+
+First run walks you through:
+
+1. Linking a [@BotFather](https://t.me/BotFather) token and capturing your user id via `/start`
+2. Pasting your Cursor API key and choosing a project directory
+
+Credentials are saved to `~/.memgrep/telegram.json` (mode `0600`). The bot starts an embedded loopback HTTP MCP so Cursor can call memgrep (`recall`, `get_chat`, `list_chats`) mid-task.
+
+```bash
+memgrep telegram setup    # re-run onboarding
+memgrep telegram status   # show redacted tokens + cwd/model
+```
+
+Leave `memgrep telegram` running. On your phone:
+
+- free text / `/ask …` → Cursor agent (edits/runs in the configured cwd)
+- `/new` → fresh Cursor conversation
+- `/cwd [path]` → show or change project directory
+- `/status` → cwd, model, agent id
+- `/recall <query>` / `/list` / `/show <id>` → memory shortcuts (without going through Cursor)
+- `/help` → commands
+
+Only allowlisted Telegram user ids get answers; everyone else is ignored.
+
+**Optional env overrides:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `CURSOR_API_KEY`, `MEMGREP_TELEGRAM_CWD`, `MEMGREP_TELEGRAM_MODEL`. If Telegram bot credentials are set in env and no config file exists yet, memgrep migrates them into `telegram.json` once.
+
+**Two processes instead of one:** run `memgrep serve --http` in one terminal and `memgrep telegram --no-server` in another (bot + Cursor MCP URL default to `http://127.0.0.1:3921/mcp`, override with `MEMGREP_MCP_URL`).
+
+**HTTP MCP for other clients:** `memgrep serve --http` binds `127.0.0.1:3921` by default. Non-loopback hosts require `MEMGREP_MCP_TOKEN` / `--token`.
 
 ## File search
 

@@ -3,3 +3,5 @@ dist/
 .memgrep/
 *.log
 .DS_Store
+.env
+.env.local

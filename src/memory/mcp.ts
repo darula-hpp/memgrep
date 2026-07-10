@@ -1,91 +1,147 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { z } from 'zod';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 import { MemoryStore } from './store.js';
+import { MemoryTools } from './tools.js';
+import { createMemgrepMcpServer } from './mcp-server.js';
 
-/** Cap transcripts returned to agents so a giant chat cannot blow the context window. */
-const MAX_CHAT_CHARS = 80_000;
+export type ServeTransport = 'stdio' | 'http';
 
-export async function startMcpServer(storeDir?: string): Promise<void> {
+export type ServeOptions = {
+  storeDir?: string;
+  transport?: ServeTransport;
+  host?: string;
+  port?: number;
+  /** Required when host is not loopback. */
+  authToken?: string;
+};
+
+export const DEFAULT_HTTP_HOST = '127.0.0.1';
+export const DEFAULT_HTTP_PORT = 3921;
+
+export function isLoopbackHost(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
+export async function startMcpServer(options: ServeOptions | string = {}): Promise<void | HttpMcpHandle> {
+  // Back-compat: startMcpServer(storeDir?) used by older call sites.
+  if (typeof options === 'string' || options === undefined) {
+    await startStdioMcpServer(typeof options === 'string' ? options : undefined);
+    return;
+  }
+  const transport = options.transport ?? 'stdio';
+  if (transport === 'stdio') {
+    await startStdioMcpServer(options.storeDir);
+    return;
+  }
+  return startHttpMcpServer(options);
+}
+
+export async function startStdioMcpServer(storeDir?: string): Promise<void> {
   const store = await MemoryStore.open(storeDir);
-
-  const server = new McpServer({ name: 'memgrep', version: '0.1.0' });
-
-  server.registerTool(
-    'recall',
-    {
-      description:
-        'Semantic search across remembered agent chats from ALL projects on this machine. ' +
-        'Use when past work, decisions, or solutions might be relevant (e.g. "how did we fix X?", ' +
-        '"have we set up Y before?"). Returns matching chats with ids; fetch full transcripts with get_chat.',
-      inputSchema: {
-        query: z.string().describe('Natural-language description of what to find'),
-        k: z.number().int().min(1).max(20).optional().describe('Max results (default 5)'),
-      },
-    },
-    async ({ query, k }) => {
-      const hits = await store.search(query, k ?? 5);
-      if (hits.length === 0) {
-        return { content: [{ type: 'text' as const, text: 'No matching chats in memory.' }] };
-      }
-      const text = hits
-        .map(
-          (h) =>
-            `[chat ${h.id}] ${h.title}\n  project: ${h.project} | date: ${h.createdAt.slice(0, 10)} | score: ${h.score.toFixed(3)} | ${h.chars} chars\n  matched: ${h.snippet.replace(/\s+/g, ' ').slice(0, 300)}`,
-        )
-        .join('\n\n');
-      return { content: [{ type: 'text' as const, text }] };
-    },
-  );
-
-  server.registerTool(
-    'get_chat',
-    {
-      description:
-        'Fetch the full transcript of a remembered chat by id (from recall or list_chats), ' +
-        'to pull its entire context into the current conversation.',
-      inputSchema: {
-        chatId: z.number().int().describe('Chat id returned by recall or list_chats'),
-      },
-    },
-    async ({ chatId }) => {
-      const chat = store.getChat(chatId);
-      if (!chat) {
-        return {
-          content: [{ type: 'text' as const, text: `No chat with id ${chatId}.` }],
-          isError: true,
-        };
-      }
-      let body = chat.content;
-      if (body.length > MAX_CHAT_CHARS) {
-        body =
-          body.slice(0, MAX_CHAT_CHARS) +
-          `\n\n[... truncated: transcript is ${chat.content.length} chars, showing first ${MAX_CHAT_CHARS} ...]`;
-      }
-      const header = `# ${chat.title}\nproject: ${chat.project} | date: ${chat.createdAt.slice(0, 10)}\n\n`;
-      return { content: [{ type: 'text' as const, text: header + body }] };
-    },
-  );
-
-  server.registerTool(
-    'list_chats',
-    {
-      description: 'List remembered chats, optionally filtered by project, newest first.',
-      inputSchema: {
-        project: z.string().optional().describe('Filter by project name'),
-      },
-    },
-    async ({ project }) => {
-      const chats = store.listChats(project);
-      if (chats.length === 0) {
-        return { content: [{ type: 'text' as const, text: 'Memory is empty.' }] };
-      }
-      const text = chats
-        .map((c) => `[chat ${c.id}] ${c.title} (${c.project}, ${c.createdAt.slice(0, 10)}, ${c.chars} chars)`)
-        .join('\n');
-      return { content: [{ type: 'text' as const, text }] };
-    },
-  );
-
+  const tools = new MemoryTools(store);
+  const server = createMemgrepMcpServer(tools);
   await server.connect(new StdioServerTransport());
+}
+
+export type HttpMcpHandle = {
+  url: string;
+  close: () => Promise<void>;
+};
+
+export async function startHttpMcpServer(options: ServeOptions = {}): Promise<HttpMcpHandle> {
+  const host = options.host ?? DEFAULT_HTTP_HOST;
+  const port = options.port ?? DEFAULT_HTTP_PORT;
+  const authToken = options.authToken ?? process.env.MEMGREP_MCP_TOKEN;
+
+  if (!isLoopbackHost(host) && !authToken) {
+    throw new Error(
+      `Refusing to bind MCP HTTP on non-loopback host "${host}" without MEMGREP_MCP_TOKEN (or --token).`,
+    );
+  }
+
+  const store = await MemoryStore.open(options.storeDir);
+  const tools = new MemoryTools(store);
+
+  const app = createMcpExpressApp({ host });
+
+  if (authToken) {
+    app.use('/mcp', (req, res, next) => {
+      const header = req.header('authorization') ?? '';
+      const expected = `Bearer ${authToken}`;
+      if (header !== expected) {
+        res.status(401).json({
+          jsonrpc: '2.0',
+          error: { code: -32001, message: 'Unauthorized' },
+          id: null,
+        });
+        return;
+      }
+      next();
+    });
+  }
+
+  app.post('/mcp', async (req, res) => {
+    const server = createMemgrepMcpServer(tools);
+    try {
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+      res.on('close', () => {
+        void transport.close();
+        void server.close();
+      });
+    } catch (error) {
+      console.error('Error handling MCP request:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: 'Internal server error' },
+          id: null,
+        });
+      }
+    }
+  });
+
+  app.get('/mcp', (_req, res) => {
+    res.status(405).json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Method not allowed.' },
+      id: null,
+    });
+  });
+
+  app.delete('/mcp', (_req, res) => {
+    res.status(405).json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Method not allowed.' },
+      id: null,
+    });
+  });
+
+  const httpServer = createServer(app);
+  await new Promise<void>((resolve, reject) => {
+    httpServer.listen(port, host, () => resolve());
+    httpServer.on('error', reject);
+  });
+
+  const address = httpServer.address() as AddressInfo;
+  const url = `http://${host}:${address.port}/mcp`;
+  console.error(`memgrep MCP HTTP listening on ${url}`);
+
+  return {
+    url,
+    close: () =>
+      new Promise((resolve, reject) => {
+        httpServer.close((err) => {
+          store.close();
+          if (err) reject(err);
+          else resolve();
+        });
+      }),
+  };
 }
