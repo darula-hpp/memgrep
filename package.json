@@ -1,7 +1,7 @@
 {
   "name": "memgrep",
   "version": "1.0.0",
-  "description": "Local agent memory and Cursor from your phone. Ingest chats across Cursor, Claude Code, and Kiro; recall via CLI or MCP; drive a real Cursor agent over Telegram — multi-profile, always-on on macOS.",
+  "description": "Telegram → Cursor agent + searchable local memory for playbooks you reuse (and schedule with memgrep jobs).",
   "keywords": [
     "semantic-search",
     "vector-search",
@@ -19,7 +19,9 @@
     "telegram",
     "telegram-bot",
     "coding-agent",
-    "remote-agent"
+    "remote-agent",
+    "cron",
+    "scheduled-jobs"
   ],
   "license": "MIT",
   "repository": {
@@ -61,6 +63,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.11.1",
     "commander": "^14.0.3",
+    "cron-parser": "^5.6.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "hnswlib-node": "^3.0.0",

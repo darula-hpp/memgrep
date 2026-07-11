@@ -6,6 +6,18 @@ import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js
 import { MemoryStore } from './store.js';
 import { MemoryTools } from './tools.js';
 import { createMemgrepMcpServer } from './mcp-server.js';
+import { JobStore } from '../jobs/store.js';
+import { JobsService } from '../jobs/service.js';
+import { JobsTools } from '../jobs/tools.js';
+
+function openJobsTools(storeDir?: string): { jobs: JobsTools; closeJobs: () => void } {
+  const jobStore = JobStore.open(storeDir);
+  const jobs = new JobsTools(new JobsService({ store: jobStore }));
+  return {
+    jobs,
+    closeJobs: () => jobStore.close(),
+  };
+}
 
 export type ServeTransport = 'stdio' | 'http';
 
@@ -42,7 +54,8 @@ export async function startMcpServer(options: ServeOptions | string = {}): Promi
 export async function startStdioMcpServer(storeDir?: string): Promise<void> {
   const store = await MemoryStore.open(storeDir);
   const tools = new MemoryTools(store);
-  const server = createMemgrepMcpServer(tools);
+  const { jobs } = openJobsTools(storeDir);
+  const server = createMemgrepMcpServer(tools, jobs);
   await server.connect(new StdioServerTransport());
 }
 
@@ -64,6 +77,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
 
   const store = await MemoryStore.open(options.storeDir);
   const tools = new MemoryTools(store);
+  const { jobs, closeJobs } = openJobsTools(options.storeDir);
 
   const app = createMcpExpressApp({ host });
 
@@ -84,7 +98,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   }
 
   app.post('/mcp', async (req, res) => {
-    const server = createMemgrepMcpServer(tools);
+    const server = createMemgrepMcpServer(tools, jobs);
     try {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
@@ -138,6 +152,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
     close: () =>
       new Promise((resolve, reject) => {
         httpServer.close((err) => {
+          closeJobs();
           store.close();
           if (err) reject(err);
           else resolve();

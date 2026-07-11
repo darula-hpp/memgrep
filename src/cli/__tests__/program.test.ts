@@ -10,6 +10,7 @@ describe('createProgram', () => {
       'delete',
       'index',
       'ingest',
+      'jobs',
       'list',
       'recall',
       'remember',
@@ -18,6 +19,27 @@ describe('createProgram', () => {
       'serve',
       'show',
       'telegram',
+    ]);
+  });
+
+  it('registers jobs subcommands', () => {
+    const program = createProgram();
+    const jobs = program.commands.find((c) => c.name() === 'jobs');
+    expect(jobs).toBeDefined();
+    const sub = jobs!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual([
+      'add',
+      'daemon',
+      'disable',
+      'enable',
+      'install',
+      'list',
+      'logs',
+      'remove',
+      'run',
+      'service',
+      'show',
+      'uninstall',
     ]);
   });
 

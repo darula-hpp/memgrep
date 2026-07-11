@@ -335,19 +335,23 @@ export function registerTelegramCommand(program: Command): void {
     .description('Install a macOS LaunchAgent so the bot stays running (survives logout/reboot)')
     .option('-p, --profile <name>', 'run this profile under launchd')
     .option('--all', 'run every configured profile under launchd')
-    .action(async (opts: { profile?: string; all?: boolean }) => {
+    .action(async (opts: { profile?: string; all?: boolean }, command) => {
       await loadDotenv();
       if (process.platform !== 'darwin') {
         fail('LaunchAgent install is only supported on macOS.');
       }
-      if (opts.all && opts.profile) {
+      // Parent `telegram` also defines --all/--profile; Commander may park them on globals.
+      const merged = {
+        ...(typeof command.optsWithGlobals === 'function' ? command.optsWithGlobals() : {}),
+        ...opts,
+      } as { profile?: string; all?: boolean };
+      if (merged.all && merged.profile) {
         fail('Use either --all or --profile, not both.');
       }
 
       const {
         listTelegramProfiles,
         migrateLegacyTelegramConfig,
-        resolveDefaultProfileName,
         resolveTelegramConfig,
         sanitizeTelegramProfile,
       } = await import('../../telegram/config.js');
@@ -356,7 +360,7 @@ export function registerTelegramCommand(program: Command): void {
       migrateLegacyTelegramConfig();
 
       let mode: { kind: 'default' } | { kind: 'all' } | { kind: 'profile'; profile: string };
-      if (opts.all) {
+      if (merged.all) {
         const profiles = listTelegramProfiles();
         if (profiles.length === 0) {
           fail('No telegram profiles configured. Run: memgrep telegram setup');
@@ -368,34 +372,35 @@ export function registerTelegramCommand(program: Command): void {
           }
         }
         mode = { kind: 'all' };
-      } else if (opts.profile) {
-        const name = sanitizeTelegramProfile(opts.profile);
+      } else if (merged.profile) {
+        const name = sanitizeTelegramProfile(merged.profile);
         const resolved = resolveTelegramConfig(process.env, undefined, name);
         if (!resolved?.cursorApiKey) {
           fail(`Profile "${name}" is incomplete. Run: memgrep telegram setup ${name}`);
         }
         mode = { kind: 'profile', profile: name };
       } else {
-        const picked = resolveDefaultProfileName();
-        if (!picked) {
-          const all = listTelegramProfiles();
-          if (all.length === 0) {
-            fail('Telegram is not configured. Run: memgrep telegram setup');
-          }
+        const profiles = listTelegramProfiles();
+        if (profiles.length === 0) {
+          fail('Telegram is not configured. Run: memgrep telegram setup');
+        }
+        if (profiles.length > 1) {
           fail(
-            `Multiple profiles (${all.join(', ')}). Pick one: memgrep telegram install --profile <name>\n` +
-              'Or install all: memgrep telegram install --all',
+            `Multiple profiles (${profiles.join(', ')}). Pick one:\n` +
+              '  memgrep telegram install --profile <name>\n' +
+              '  memgrep telegram install --all',
           );
         }
-        const resolved = resolveTelegramConfig(process.env, undefined, picked);
+        const only = profiles[0]!;
+        const resolved = resolveTelegramConfig(process.env, undefined, only);
         if (!resolved?.cursorApiKey) {
-          fail(`Profile "${picked}" is incomplete. Run: memgrep telegram setup ${picked}`);
+          fail(`Profile "${only}" is incomplete. Run: memgrep telegram setup ${only}`);
         }
-        mode = { kind: 'default' };
+        mode = only === 'default' ? { kind: 'default' } : { kind: 'profile', profile: only };
       }
 
       console.error(
-        'Stop any foreground "memgrep telegram" first (Ctrl-C) — only one poller can use the bot token.',
+        'Stop any foreground "memgrep telegram" first (Ctrl-C) - only one poller can use the bot token.',
       );
       const status = installLaunchdService({ mode });
       console.log(`Installed LaunchAgent: ${status.label}`);

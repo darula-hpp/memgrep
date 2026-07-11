@@ -1,8 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { MemoryTools, toMcpContent } from './tools.js';
+import type { JobsTools } from '../jobs/tools.js';
 
-export function createMemgrepMcpServer(tools: MemoryTools): McpServer {
+export function createMemgrepMcpServer(
+  tools: MemoryTools,
+  jobs?: JobsTools,
+): McpServer {
   const server = new McpServer({ name: 'memgrep', version: '0.1.0' });
 
   server.registerTool(
@@ -59,5 +63,99 @@ export function createMemgrepMcpServer(tools: MemoryTools): McpServer {
     async ({ text, title, project }) => toMcpContent(await tools.remember({ text, title, project })),
   );
 
+  if (jobs) {
+    registerJobsTools(server, jobs);
+  }
+
   return server;
+}
+
+function registerJobsTools(server: McpServer, jobs: JobsTools): void {
+  server.registerTool(
+    'jobs_list',
+    {
+      description:
+        'List scheduled memgrep jobs (cron + playbook). Use before adding/updating schedules.',
+      inputSchema: {},
+    },
+    async () => toMcpContent(jobs.list()),
+  );
+
+  server.registerTool(
+    'jobs_add',
+    {
+      description:
+        'Create a scheduled job that runs a remembered playbook via Cursor on a cron schedule. ' +
+        'Provide playbookId (from remember/list_chats) or playbookQuery. Default mode is notify (Telegram summary; prefer preview for side effects).',
+      inputSchema: {
+        name: z.string().describe('Short job name'),
+        cron: z.string().describe('5-field cron, e.g. "0 9 * * 1-5"'),
+        prompt: z.string().describe('What the agent should do when the job fires'),
+        cwd: z.string().describe('Absolute or ~/ project directory for the Cursor agent'),
+        playbookId: z.number().int().optional().describe('memgrep chat id of the playbook'),
+        playbookQuery: z.string().optional().describe('Semantic query to find the playbook'),
+        model: z.string().optional().describe('Cursor model id'),
+        telegramProfile: z.string().optional().describe('Telegram profile for credentials/notify'),
+        mode: z.enum(['notify', 'auto']).optional().describe('notify (default) or auto'),
+        enabled: z.boolean().optional().describe('Default true'),
+      },
+    },
+    async (input) => toMcpContent(jobs.add(input)),
+  );
+
+  server.registerTool(
+    'jobs_update',
+    {
+      description: 'Update an existing job (cron, prompt, mode, enable/disable, etc.).',
+      inputSchema: {
+        idOrName: z.string().describe('Job id or name'),
+        name: z.string().optional(),
+        cron: z.string().optional(),
+        prompt: z.string().optional(),
+        cwd: z.string().optional(),
+        playbookId: z.number().int().nullable().optional(),
+        playbookQuery: z.string().nullable().optional(),
+        model: z.string().nullable().optional(),
+        telegramProfile: z.string().nullable().optional(),
+        mode: z.enum(['notify', 'auto']).optional(),
+        enabled: z.boolean().optional(),
+      },
+    },
+    async ({ idOrName, ...patch }) => toMcpContent(jobs.update(idOrName, patch)),
+  );
+
+  server.registerTool(
+    'jobs_remove',
+    {
+      description: 'Delete a scheduled job.',
+      inputSchema: {
+        idOrName: z.string().describe('Job id or name'),
+      },
+    },
+    async ({ idOrName }) => toMcpContent(jobs.remove(idOrName)),
+  );
+
+  server.registerTool(
+    'jobs_run',
+    {
+      description:
+        'Run a job once immediately (starts a Cursor agent with the playbook). Requires CURSOR_API_KEY / telegram profile setup.',
+      inputSchema: {
+        idOrName: z.string().describe('Job id or name'),
+      },
+    },
+    async ({ idOrName }) => toMcpContent(await jobs.run(idOrName)),
+  );
+
+  server.registerTool(
+    'jobs_logs',
+    {
+      description: 'Show recent run history for a job.',
+      inputSchema: {
+        idOrName: z.string().describe('Job id or name'),
+        limit: z.number().int().min(1).max(50).optional(),
+      },
+    },
+    async ({ idOrName, limit }) => toMcpContent(jobs.logs(idOrName, limit)),
+  );
 }

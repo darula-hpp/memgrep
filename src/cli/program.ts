@@ -11,13 +11,16 @@ import { registerSearchCommand } from './commands/search.js';
 import { registerServeCommand } from './commands/serve.js';
 import { registerShowCommand } from './commands/show.js';
 import { registerTelegramCommand } from './commands/telegram.js';
+import { registerJobsCommand } from './commands/jobs.js';
 
 export function createProgram(): Command {
   const program = new Command();
 
   program
     .name('memgrep')
-    .description('Local agent memory + Cursor from your phone (Telegram), MCP, and semantic file search')
+    .description(
+      'Local agent memory + Cursor from your phone (Telegram), scheduled jobs, MCP, and semantic file search',
+    )
     .version('1.0.0')
     .showHelpAfterError()
     .configureHelp({ sortSubcommands: true })
@@ -37,6 +40,7 @@ export function createProgram(): Command {
   registerRememberCommand(program);
   registerServeCommand(program);
   registerTelegramCommand(program);
+  registerJobsCommand(program);
 
   return program;
 }
