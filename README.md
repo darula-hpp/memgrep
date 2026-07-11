@@ -4,9 +4,11 @@ Local agent memory - Cursor from your phone - scheduled playbooks.
 
 memgrep started as searchable memory for coding agents. It still is that: every chat across Cursor, Claude Code, and Kiro, fully local, recallable via CLI or MCP. It also grew into a thin remote coding path: an allowlisted Telegram bot that drives a **real Cursor agent** in a real project folder, with memgrep memory attached mid-task. And **jobs**: attach a remembered playbook to a cron schedule so Cursor runs it on a timer (outreach, inbox scan, whatever you stored).
 
+**The point:** lock the workflows you already figured out. `remember` a playbook once; later the agent `recall`s it (from Cursor, Claude, Kiro, or Telegram) instead of vibing the same steps from scratch and burning tokens every time. Schedule it if it should run on a clock.
+
+- **Playbooks you reuse.** Store the procedure (steps, constraints, script paths). Pull it into the next run with `recall` / `get_chat` - or fire it on a cron with `memgrep jobs`.
 - **Memory that outlives sessions.** Ingest transcripts from Cursor, Claude Code, and Kiro into one local store. Any MCP-capable agent can `recall` / `get_chat` / `remember` mid-task.
-- **Cursor from your phone.** `memgrep telegram` long-polls Telegram’s cloud, runs `@cursor/sdk` against a cwd on your machine, and streams replies back. Multi-profile bots, workspace switching, macOS LaunchAgent for always-on while the Mac is awake.
-- **Scheduled playbooks.** `memgrep jobs` runs Cursor against a remembered workflow on a cron. Manage from CLI or MCP (`jobs_*` tools) - same surface in Cursor chat and Telegram.
+- **Cursor from your phone.** `memgrep telegram` long-polls Telegram's cloud, runs `@cursor/sdk` against a cwd on your machine, and streams replies back. Multi-profile bots, workspace switching, macOS LaunchAgent for always-on while the Mac is awake.
 - **Fully local memory plane.** Embeddings on-device via [Transformers.js](https://github.com/huggingface/transformers.js). SQLite + [hnswlib](https://github.com/yoshoku/hnswlib-node) HNSW. No cloud for your chat archive - your history contains your code.
 
 ## Demo
@@ -15,12 +17,15 @@ memgrep started as searchable memory for coding agents. It still is that: every 
 
 ## Why
 
+I used a full agent gateway (OpenClaw). It worked. It also wasted tokens re-deriving the same workflows every session - outreach steps, deploy checks, inbox scans - things that should have been locked in.
+
 Two problems, one tool:
 
-1. **Siloed agent history.** You fixed an auth bug three weeks ago in another editor. Today’s agent has no idea. Transcripts exist on disk but aren’t searchable across tools.
-2. **Remote coding without a gateway.** You want to text an agent from your phone and get real work done in a repo - not stand up a second agent platform. memgrep uses Telegram as the remote and Cursor as the brain.
+1. **Workflows that should be durable.** You should not reinvent a playbook every chat. Store it once (`remember` / ingest), attach it mid-task via MCP, optionally cron it.
+2. **Siloed agent history.** You fixed an auth bug three weeks ago in another editor. Today's agent has no idea. Transcripts exist on disk but aren't searchable across tools.
+3. **Remote coding without a second platform.** Text an agent from your phone and get real work done in a repo. Telegram is the channel; Cursor is the brain; memgrep is the memory (and the scheduler).
 
-memgrep turns the transcript pile into one queryable memory, and optionally puts that memory (plus a live Cursor agent) behind a Telegram bot you already know how to use.
+memgrep turns the transcript pile into one queryable memory, puts that memory behind MCP (and optionally Telegram), and lets you schedule the playbooks you already trust.
 
 ## Quickstart
 
@@ -187,7 +192,7 @@ Jobs are stored under `~/.memgrep/jobs/` (`jobs.json` + `runs.db`). Default **mo
 
 Chat with a **local Cursor agent** from Telegram. You do **not** need to be on the same Wi-Fi - Telegram's cloud reaches a long-polling process on your Mac. Usage is billed against your **Cursor plan** (same token pool as the IDE; tagged SDK in the dashboard). You need a [`CURSOR_API_KEY`](https://cursor.com/dashboard/integrations).
 
-Compared to a full agent gateway (e.g. OpenClaw): memgrep keeps the stack thin - Telegram is the remote channel, Cursor is the runtime, memgrep is the memory. Multi-profile bots and a macOS LaunchAgent cover the day-to-day "text from anywhere" loop without a second control plane.
+Compared to a full agent gateway (e.g. OpenClaw): memgrep keeps the stack thin - Telegram is the channel, Cursor is the runtime, memgrep is the memory. The gateway can vibe a workflow every time; memgrep is for locking the ones you already trust and reusing them (and scheduling them) without paying to rediscover the steps.
 
 ```bash
 memgrep telegram
