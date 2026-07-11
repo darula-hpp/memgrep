@@ -96,7 +96,7 @@ Memory is exposed through MCP, so it works in any MCP-capable agent: Cursor, Cla
 
 Config locations: Cursor `~/.cursor/mcp.json`, Claude Code `claude mcp add memgrep -- npx -y memgrep serve` (or `claude mcp add memgrep -- memgrep serve` if global), Kiro `~/.kiro/settings/mcp.json`, Antigravity via its MCP settings UI.
 
-The agent gets three tools: `recall(query)`, `get_chat(id)`, and `list_chats(project?)`. Retrieval finds which chat matters; the agent pulls the full transcript into context. An agent in Kiro can recall a fix from a Cursor chat last month.
+The agent gets four tools: `recall(query)`, `get_chat(id)`, `list_chats(project?)`, and `remember(text, title?, project?)`. Retrieval finds which chat matters; the agent pulls the full transcript into context or stores a durable note. An agent in Kiro can recall a fix from a Cursor chat last month.
 
 ### Telegram (from your phone)
 
@@ -111,7 +111,7 @@ First run walks you through:
 1. Linking a [@BotFather](https://t.me/BotFather) token and capturing your user id via `/start`
 2. Pasting your Cursor API key and choosing a project directory
 
-Credentials are saved to `~/.memgrep/telegram.json` (mode `0600`). The bot starts an embedded loopback HTTP MCP so Cursor can call memgrep (`recall`, `get_chat`, `list_chats`) mid-task.
+Credentials are saved to `~/.memgrep/telegram.json` (mode `0600`). The bot starts an embedded loopback HTTP MCP so Cursor can call memgrep (`recall`, `get_chat`, `list_chats`, `remember`) mid-task.
 
 ```bash
 memgrep telegram setup    # re-run onboarding

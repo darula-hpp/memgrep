@@ -1,0 +1,57 @@
+import { formatFetchError, isNetworkTimeoutError } from './errors.js';
+
+let installed = false;
+
+/**
+ * Keep the long-running telegram process alive when the Cursor SDK (or undici)
+ * emits background network failures as unhandled rejections.
+ */
+export function installTelegramProcessGuards(): void {
+  if (installed) return;
+  installed = true;
+
+  process.on('unhandledRejection', (reason) => {
+    const detail = formatFetchError(reason);
+    if (isTransientSdkOrNetworkError(reason, detail)) {
+      console.error(`memgrep telegram: ignored background error: ${detail}`);
+      return;
+    }
+    console.error(`memgrep telegram: unhandledRejection: ${detail}`);
+  });
+
+  process.on('uncaughtException', (error) => {
+    const detail = formatFetchError(error);
+    if (isTransientSdkOrNetworkError(error, detail)) {
+      console.error(`memgrep telegram: ignored uncaughtException: ${detail}`);
+      return;
+    }
+    console.error(`memgrep telegram: fatal uncaughtException: ${detail}`);
+    process.exit(1);
+  });
+}
+
+function isTransientSdkOrNetworkError(reason: unknown, detail: string): boolean {
+  if (isNetworkTimeoutError(reason)) return true;
+  const text = detail.toLowerCase();
+  if (
+    text.includes('etimedout') ||
+    text.includes('econnreset') ||
+    text.includes('enotfound') ||
+    text.includes('eai_again') ||
+    text.includes('socket hang up') ||
+    text.includes('fetch failed') ||
+    text.includes('[unavailable]') ||
+    text.includes('connecterror') ||
+    text.includes('network')
+  ) {
+    return true;
+  }
+  if (reason && typeof reason === 'object') {
+    const name = (reason as { name?: string }).name ?? '';
+    const code = (reason as { code?: string | number }).code;
+    if (name === 'ConnectError' || name === 'CursorAgentError') return true;
+    // connectrpc unavailable = 14
+    if (code === 14 || code === 'ETIMEDOUT' || code === 'ECONNRESET') return true;
+  }
+  return false;
+}

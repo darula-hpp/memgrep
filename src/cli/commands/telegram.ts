@@ -41,6 +41,9 @@ async function ensureConfig(forceSetup: boolean) {
 }
 
 async function startBot(opts: { noServer?: boolean; mcpUrl?: string }): Promise<void> {
+  const { installTelegramProcessGuards } = await import('../../telegram/process-guards.js');
+  installTelegramProcessGuards();
+
   const { resolved } = await ensureConfig(false);
   const { TelegramBot } = await import('../../telegram/bot.js');
   const { CursorAgentPool } = await import('../../telegram/cursor-agent.js');

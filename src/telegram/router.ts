@@ -14,6 +14,8 @@ Cursor:
   /ws add <name> <path>
   /ws rm <name>      remove a saved workspace
   /cwd [path]        show or switch by full path
+  /model             list models (* = current)
+  /model <id>        switch model (new conversation)
   /status            cwd + model + workspaces
 
 Memory shortcuts:
@@ -45,6 +47,12 @@ export function parseTelegramCommand(text: string | undefined): TelegramCommand 
 
   if (raw === '/status') {
     return { kind: 'status' };
+  }
+
+  const modelMatch = raw.match(/^\/model(?:@\w+)?(?:\s+(.+))?$/i);
+  if (modelMatch) {
+    const model = modelMatch[1]?.trim();
+    return { kind: 'model', model: model || undefined };
   }
 
   const wsMatch = raw.match(/^\/(?:ws|workspace|workspaces)(?:@\w+)?(?:\s+(.+))?$/i);

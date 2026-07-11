@@ -168,6 +168,15 @@ export async function dispatchCommand(
         session.listWorkspaces(),
       ].join('\n');
     }
+    case 'model': {
+      const session = requireSession(ctx);
+      try {
+        if (!command.model) return await session.listModels();
+        return await session.setModel(command.model);
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    }
     case 'ignored':
       return helpText();
   }

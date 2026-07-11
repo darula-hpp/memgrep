@@ -24,6 +24,12 @@ export type ListChatsInput = {
   project?: string;
 };
 
+export type RememberInput = {
+  text: string;
+  title?: string;
+  project?: string;
+};
+
 /**
  * Shared memory tool surface used by stdio MCP, HTTP MCP, and Telegram.
  * New tools should be added here first, then registered on each transport.
@@ -69,6 +75,27 @@ export class MemoryTools {
       .map((c) => `[chat ${c.id}] ${c.title} (${c.project}, ${c.createdAt.slice(0, 10)}, ${c.chars} chars)`)
       .join('\n');
     return { text };
+  }
+
+  async remember(input: RememberInput): Promise<ToolResult> {
+    const text = input.text.trim();
+    if (!text) {
+      return { text: 'Nothing to remember: text is empty.', isError: true };
+    }
+    const title =
+      input.title?.trim() || (text.length > 80 ? `${text.slice(0, 77)}...` : text);
+    const project = input.project?.trim() || 'notes';
+    const id = await this.store.addChat({
+      title,
+      project,
+      content: text,
+      tool: 'note',
+    });
+    await this.store.persist();
+    if (id === null) {
+      return { text: 'Already remembered (identical note exists).' };
+    }
+    return { text: `Remembered as chat ${id} (${project}).` };
   }
 }
 

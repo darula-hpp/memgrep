@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { Agent, CursorAgentError, type SDKAgent } from '@cursor/sdk';
+import { Agent, Cursor, CursorAgentError, type SDKAgent, type SDKModel } from '@cursor/sdk';
 import {
   expandHomePath,
   formatWorkspaceList,
@@ -22,6 +22,8 @@ export interface CursorAgentSession {
   send(text: string): Promise<string>;
   reset(): Promise<void>;
   setCwd(cwd: string, name?: string): Promise<string>;
+  setModel(model: string): Promise<string>;
+  listModels(): Promise<string>;
   listWorkspaces(): string;
   switchWorkspace(ref: string): Promise<string>;
   addWorkspace(name: string, dir: string): Promise<string>;
@@ -112,6 +114,66 @@ export class CursorAgentPool {
     }
     await this.resetAll();
     return resolved;
+  }
+
+  /** @internal */
+  async setModel(model: string): Promise<string> {
+    const resolved = await this.resolveModelId(model);
+    this.model = resolved;
+    if (this.options.persistConfig !== false) {
+      updateTelegramConfig({ model: resolved });
+    }
+    await this.resetAll();
+    return resolved;
+  }
+
+  /** @internal */
+  async listModelsText(): Promise<string> {
+    const current = this.model;
+    try {
+      const models = await Cursor.models.list({ apiKey: this.options.apiKey });
+      if (models.length === 0) {
+        return `Current model: ${current}\n(No models returned for this API key.)`;
+      }
+      const lines = models.map((m, i) => formatModelLine(m, i + 1, current));
+      return [`Current: ${current}`, '', ...lines, '', 'Switch with /model <id>'].join('\n');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return [
+        `Current model: ${current}`,
+        `(Could not list models: ${detail})`,
+        'Switch with /model <id> anyway (e.g. composer-2.5, auto).',
+      ].join('\n');
+    }
+  }
+
+  private async resolveModelId(ref: string): Promise<string> {
+    const trimmed = ref.trim();
+    if (!trimmed) throw new Error('Model id is required. Try /model to list.');
+
+    let models: SDKModel[] | undefined;
+    try {
+      models = await Cursor.models.list({ apiKey: this.options.apiKey });
+    } catch {
+      // Offline / API flake — accept the raw id so the user can still switch.
+      return trimmed;
+    }
+
+    const lower = trimmed.toLowerCase();
+    const match =
+      models.find((m) => m.id.toLowerCase() === lower) ??
+      models.find((m) => m.aliases?.some((a) => a.toLowerCase() === lower)) ??
+      models.find((m) => m.displayName.toLowerCase() === lower);
+
+    if (match) return match.id;
+
+    const sample = models
+      .slice(0, 8)
+      .map((m) => m.id)
+      .join(', ');
+    throw new Error(
+      `Unknown model "${trimmed}". Try /model to list.${sample ? ` Examples: ${sample}` : ''}`,
+    );
   }
 
   /** @internal */
@@ -216,7 +278,8 @@ class CursorAgentHandle implements CursorAgentSession {
       if (error instanceof CursorAgentError) {
         return `Cursor error: ${error.message}${error.isRetryable ? ' (retryable)' : ''}`;
       }
-      throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      return `Cursor error: ${message}`;
     }
   }
 
@@ -226,6 +289,15 @@ class CursorAgentHandle implements CursorAgentSession {
 
   async setCwd(cwd: string, name?: string): Promise<string> {
     return this.pool.setCwd(cwd, name);
+  }
+
+  async setModel(model: string): Promise<string> {
+    const next = await this.pool.setModel(model);
+    return `Model set to ${next} (new Cursor conversation).`;
+  }
+
+  async listModels(): Promise<string> {
+    return this.pool.listModelsText();
   }
 
   listWorkspaces(): string {
@@ -274,4 +346,10 @@ class CursorAgentHandle implements CursorAgentSession {
       await agent[Symbol.asyncDispose]();
     }
   }
+}
+
+function formatModelLine(model: SDKModel, index: number, current: string): string {
+  const mark = model.id === current ? ' *' : '';
+  const name = model.displayName && model.displayName !== model.id ? ` — ${model.displayName}` : '';
+  return `${index}. ${model.id}${name}${mark}`;
 }

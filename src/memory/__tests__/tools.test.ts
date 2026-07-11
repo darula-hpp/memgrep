@@ -19,6 +19,8 @@ describe('MemoryTools formatting', () => {
       search: async () => [],
       getChat: () => null,
       listChats: () => [],
+      addChat: async () => 1,
+      persist: async () => {},
     };
     const tools = new MemoryTools(store as never);
     expect((await tools.recall({ query: 'x' })).text).toContain('No matching');
@@ -41,10 +43,40 @@ describe('MemoryTools formatting', () => {
       ],
       getChat: () => null,
       listChats: () => [],
+      addChat: async () => 1,
+      persist: async () => {},
     };
     const tools = new MemoryTools(store as never);
     const result = await tools.recall({ query: 'auth' });
     expect(result.text).toContain('[chat 3] Auth fix');
     expect(result.text).toContain('mutex around refresh');
+  });
+
+  it('remembers notes via addChat', async () => {
+    const calls: unknown[] = [];
+    const store = {
+      search: async () => [],
+      getChat: () => null,
+      listChats: () => [],
+      addChat: async (input: unknown) => {
+        calls.push(input);
+        return 42;
+      },
+      persist: async () => {
+        calls.push('persist');
+      },
+    };
+    const tools = new MemoryTools(store as never);
+    const result = await tools.remember({
+      text: 'we chose SQLite over Postgres for local memory',
+      project: 'memgrep',
+    });
+    expect(result.text).toContain('chat 42');
+    expect(calls[0]).toMatchObject({
+      content: 'we chose SQLite over Postgres for local memory',
+      project: 'memgrep',
+      tool: 'note',
+    });
+    expect(calls).toContain('persist');
   });
 });

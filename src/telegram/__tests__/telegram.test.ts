@@ -192,6 +192,12 @@ describe('parseTelegramCommand', () => {
       name: 'api',
     });
     expect(parseTelegramCommand('/status')).toEqual({ kind: 'status' });
+    expect(parseTelegramCommand('/model')).toEqual({ kind: 'model', model: undefined });
+    expect(parseTelegramCommand('/model composer-2.5')).toEqual({
+      kind: 'model',
+      model: 'composer-2.5',
+    });
+    expect(parseTelegramCommand('/model auto')).toEqual({ kind: 'model', model: 'auto' });
   });
 
   it('treats free text as Cursor agent', () => {
@@ -243,6 +249,13 @@ describe('dispatchCommand', () => {
         cwd = next;
         workspaces = [{ name: name ?? 'demo', path: next }];
         return cwd;
+      },
+      async setModel(model) {
+        sent.push(`MODEL:${model}`);
+        return `Model set to ${model} (new Cursor conversation).`;
+      },
+      async listModels() {
+        return 'Current: composer-2.5\n1. composer-2.5 *\n2. auto';
       },
       listWorkspaces() {
         return `Workspaces:\n1. ${workspaces[0]?.name ?? 'none'}`;
@@ -314,18 +327,39 @@ describe('dispatchCommand', () => {
 
     const project = await mkdtemp(path.join(tmpdir(), 'memgrep-cwd-'));
     try {
-      expect(
-        await dispatchCommand({
-          access,
-          cursor,
-          userId: 1,
-          command: { kind: 'cwd', path: project },
-          text: `/cwd ${project}`,
-        }),
-      ).toContain(project);
+    expect(
+      await dispatchCommand({
+        access,
+        cursor,
+        userId: 1,
+        command: { kind: 'cwd', path: project },
+        text: `/cwd ${project}`,
+      }),
+    ).toContain(project);
     } finally {
       await rm(project, { recursive: true, force: true });
     }
+
+    expect(
+      await dispatchCommand({
+        access,
+        cursor,
+        userId: 1,
+        command: { kind: 'model' },
+        text: '/model',
+      }),
+    ).toContain('composer-2.5');
+
+    expect(
+      await dispatchCommand({
+        access,
+        cursor,
+        userId: 1,
+        command: { kind: 'model', model: 'auto' },
+        text: '/model auto',
+      }),
+    ).toContain('Model set to auto');
+    expect(sent).toContain('MODEL:auto');
   });
 });
 
@@ -349,6 +383,7 @@ describe('helpText', () => {
     expect(text).toContain('/ws');
     expect(text).toContain('/ask');
     expect(text).toContain('/new');
+    expect(text).toContain('/model');
     expect(text).toContain('/list');
     expect(text).toContain('/show');
     expect(text).toContain('/recall');

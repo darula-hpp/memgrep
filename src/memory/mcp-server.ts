@@ -44,5 +44,20 @@ export function createMemgrepMcpServer(tools: MemoryTools): McpServer {
     async ({ project }) => toMcpContent(await tools.listChats({ project })),
   );
 
+  server.registerTool(
+    'remember',
+    {
+      description:
+        'Store a manual note in memgrep memory (a decision, postmortem, or context that is not in a transcript). ' +
+        'Use when the user asks to remember something, or when you want a durable fact available to future agents via recall.',
+      inputSchema: {
+        text: z.string().describe('Note body to store'),
+        title: z.string().optional().describe('Short title (defaults to a truncated note)'),
+        project: z.string().optional().describe('Project name (defaults to "notes")'),
+      },
+    },
+    async ({ text, title, project }) => toMcpContent(await tools.remember({ text, title, project })),
+  );
+
   return server;
 }

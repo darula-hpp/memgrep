@@ -34,6 +34,7 @@ export type TelegramCommand =
   | { kind: 'ws'; action: 'add'; name: string; path: string }
   | { kind: 'ws'; action: 'remove'; name: string }
   | { kind: 'status' }
+  | { kind: 'model'; model?: string }
   | { kind: 'ignored' };
 
 export type TelegramUpdateMessage = {
