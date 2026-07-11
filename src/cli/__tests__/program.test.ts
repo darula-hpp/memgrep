@@ -55,15 +55,15 @@ describe('createProgram', () => {
     );
   });
 
-  it('registers telegram command with setup/status and --no-server', () => {
+  it('registers telegram command with profiles and --no-server', () => {
     const program = createProgram();
     const tg = program.commands.find((c) => c.name() === 'telegram');
     expect(tg).toBeDefined();
     expect(tg!.options.map((o) => o.flags)).toEqual(
-      expect.arrayContaining(['--no-server', '--mcp-url <url>']),
+      expect.arrayContaining(['-p, --profile <name>', '--all', '--no-server', '--mcp-url <url>']),
     );
     const sub = tg!.commands.map((c) => c.name()).sort();
-    expect(sub).toEqual(['setup', 'status']);
+    expect(sub).toEqual(['list', 'setup', 'status']);
   });
 
   it('prints help for --help without throwing', async () => {

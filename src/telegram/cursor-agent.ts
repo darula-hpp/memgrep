@@ -39,8 +39,12 @@ export type CursorAgentPoolOptions = {
   mcpUrl: string;
   mcpToken?: string;
   workspaces?: TelegramWorkspace[];
-  /** Persist cwd/model changes back to telegram.json when true (default). */
+  /** Persist cwd/model changes back to the profile config when true (default). */
   persistConfig?: boolean;
+  /** Telegram profile name (default: default). */
+  profile?: string;
+  /** MEMGREP_HOME override for config persistence. */
+  home?: string;
 };
 
 /**
@@ -110,7 +114,7 @@ export class CursorAgentPool {
     const withoutName = withoutPath.filter((w) => w.name.toLowerCase() !== label.toLowerCase());
     this.workspaces = normalizeWorkspaces([...withoutName, { name: label, path: resolved }], resolved);
     if (this.options.persistConfig !== false) {
-      updateTelegramConfig({ cwd: resolved, workspaces: this.workspaces });
+      this.persist({ cwd: resolved, workspaces: this.workspaces });
     }
     await this.resetAll();
     return resolved;
@@ -121,7 +125,7 @@ export class CursorAgentPool {
     const resolved = await this.resolveModelId(model);
     this.model = resolved;
     if (this.options.persistConfig !== false) {
-      updateTelegramConfig({ model: resolved });
+      this.persist({ model: resolved });
     }
     await this.resetAll();
     return resolved;
@@ -202,7 +206,7 @@ export class CursorAgentPool {
     const rest = this.workspaces.filter((w) => w.name.toLowerCase() !== label.toLowerCase());
     this.workspaces = normalizeWorkspaces([...rest, { name: label, path: resolved }], this.cwd);
     if (this.options.persistConfig !== false) {
-      updateTelegramConfig({ workspaces: this.workspaces });
+      this.persist({ workspaces: this.workspaces });
     }
     return { name: label, path: resolved };
   }
@@ -220,8 +224,14 @@ export class CursorAgentPool {
       // Stay on cwd even if removed from list — just drop the name entry.
     }
     if (this.options.persistConfig !== false) {
-      updateTelegramConfig({ workspaces: this.workspaces });
+      this.persist({ workspaces: this.workspaces });
     }
+  }
+
+  private persist(
+    patch: Parameters<typeof updateTelegramConfig>[0],
+  ): void {
+    updateTelegramConfig(patch, this.options.home, this.options.profile);
   }
 
   /** @internal */

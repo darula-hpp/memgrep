@@ -1,4 +1,5 @@
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,12 +8,16 @@ import { telegramMethodUrl } from '../api.js';
 import {
   DEFAULT_CURSOR_MODEL,
   formatWorkspaceList,
+  listTelegramProfiles,
   maybeMigrateEnvToConfig,
+  migrateLegacyTelegramConfig,
   normalizeWorkspaces,
   readTelegramConfig,
   redactToken,
+  resolveDefaultProfileName,
   resolveTelegramConfig,
   resolveWorkspaceRef,
+  telegramConfigPath,
   writeTelegramConfig,
 } from '../config.js';
 import { helpText, parseTelegramCommand } from '../router.js';
@@ -58,7 +63,7 @@ describe('telegram config file', () => {
     if (home) await rm(home, { recursive: true, force: true });
   });
 
-  it('writes and reads telegram.json', async () => {
+  it('writes and reads telegram profile config', async () => {
     home = await mkdtemp(path.join(tmpdir(), 'memgrep-tg-'));
     writeTelegramConfig(
       {
@@ -71,7 +76,7 @@ describe('telegram config file', () => {
       },
       home,
     );
-    const raw = await readFile(path.join(home, 'telegram.json'), 'utf8');
+    const raw = await readFile(path.join(home, 'telegram', 'default.json'), 'utf8');
     expect(raw).toContain('1355870341');
     expect(raw).toContain('cursor_test_key');
     expect(raw).toContain('/tmp/project');
@@ -82,6 +87,43 @@ describe('telegram config file', () => {
     expect(loaded?.cursorApiKey).toBe('cursor_test_key_abcdefgh');
     expect(loaded?.cwd).toBe('/tmp/project');
     expect(loaded?.model).toBe('composer-2.5');
+  });
+
+  it('migrates legacy telegram.json into telegram/default.json', async () => {
+    home = await mkdtemp(path.join(tmpdir(), 'memgrep-tg-'));
+    await writeFile(
+      path.join(home, 'telegram.json'),
+      JSON.stringify({
+        version: 1,
+        botToken: '999:legacy',
+        allowedUserIds: [7],
+        createdAt: '2020-01-01T00:00:00.000Z',
+        updatedAt: '2020-01-01T00:00:00.000Z',
+      }),
+    );
+    expect(migrateLegacyTelegramConfig(home)).toBe('default');
+    expect(listTelegramProfiles(home)).toEqual(['default']);
+    expect(readTelegramConfig(home)?.botToken).toBe('999:legacy');
+    expect(existsSync(path.join(home, 'telegram.json'))).toBe(false);
+    expect(existsSync(telegramConfigPath(home, 'default'))).toBe(true);
+  });
+
+  it('supports multiple named profiles', async () => {
+    home = await mkdtemp(path.join(tmpdir(), 'memgrep-tg-'));
+    writeTelegramConfig(
+      { botToken: '1:a', allowedUserIds: [1], cwd: '/a', model: 'composer-2.5' },
+      home,
+      'career',
+    );
+    writeTelegramConfig(
+      { botToken: '2:b', allowedUserIds: [1], cwd: '/b', model: 'auto' },
+      home,
+      'side',
+    );
+    expect(listTelegramProfiles(home)).toEqual(['career', 'side']);
+    expect(resolveDefaultProfileName(home)).toBeNull();
+    expect(resolveTelegramConfig({}, home, 'side')?.cwd).toBe('/b');
+    expect(resolveTelegramConfig({}, home, 'career')?.profile).toBe('career');
   });
 
   it('resolves file config and env overrides', async () => {

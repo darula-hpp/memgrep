@@ -6,59 +6,81 @@ async function loadDotenv(): Promise<void> {
   config({ quiet: true });
 }
 
-async function ensureConfig(forceSetup: boolean) {
+async function ensureConfig(forceSetup: boolean, profile: string) {
   const {
     maybeMigrateEnvToConfig,
+    migrateLegacyTelegramConfig,
     resolveTelegramConfig,
     redactToken,
     readTelegramConfig,
+    sanitizeTelegramProfile,
   } = await import('../../telegram/config.js');
   const { runTelegramSetup } = await import('../../telegram/setup.js');
 
+  migrateLegacyTelegramConfig();
   maybeMigrateEnvToConfig();
 
-  let resolved = resolveTelegramConfig();
+  const name = sanitizeTelegramProfile(profile);
+  let resolved = resolveTelegramConfig(process.env, undefined, name);
   const needsSetup =
     forceSetup || !resolved || !resolved.cursorApiKey || !resolved.cwd;
 
   if (needsSetup) {
-    const existing = readTelegramConfig();
+    const existing = readTelegramConfig(undefined, name);
     await runTelegramSetup({
-      existingToken: process.env.TELEGRAM_BOT_TOKEN?.trim() || existing?.botToken,
+      profile: name,
+      existingToken:
+        name === 'default'
+          ? process.env.TELEGRAM_BOT_TOKEN?.trim() || existing?.botToken
+          : existing?.botToken,
       existingCursorApiKey: process.env.CURSOR_API_KEY?.trim() || existing?.cursorApiKey,
       existingCwd: process.env.MEMGREP_TELEGRAM_CWD?.trim() || existing?.cwd,
       existingModel: process.env.MEMGREP_TELEGRAM_MODEL?.trim() || existing?.model,
     });
-    resolved = resolveTelegramConfig();
+    resolved = resolveTelegramConfig(process.env, undefined, name);
   }
   if (!resolved) {
-    fail('Telegram is not configured. Run: memgrep telegram setup');
+    fail(`Telegram profile "${name}" is not configured. Run: memgrep telegram setup ${name}`);
   }
   if (!resolved.cursorApiKey) {
-    fail('CURSOR_API_KEY is required. Run: memgrep telegram setup');
+    fail(`CURSOR_API_KEY is required. Run: memgrep telegram setup ${name}`);
   }
-  return { resolved, redactToken };
+  return { resolved, redactToken, profile: name };
 }
 
-async function startBot(opts: { noServer?: boolean; mcpUrl?: string }): Promise<void> {
+type StartOpts = {
+  noServer?: boolean;
+  mcpUrl?: string;
+  profiles: string[];
+};
+
+async function startBots(opts: StartOpts): Promise<void> {
   const { installTelegramProcessGuards } = await import('../../telegram/process-guards.js');
   installTelegramProcessGuards();
 
-  const { resolved } = await ensureConfig(false);
   const { TelegramBot } = await import('../../telegram/bot.js');
   const { CursorAgentPool } = await import('../../telegram/cursor-agent.js');
+  const { resolveTelegramConfig, sanitizeTelegramProfile } = await import('../../telegram/config.js');
 
+  const profiles = opts.profiles.map((p) => sanitizeTelegramProfile(p));
+  const resolvedList = [];
+  for (const profile of profiles) {
+    const { resolved } = await ensureConfig(false, profile);
+    resolvedList.push(resolved);
+  }
+
+  // Shared memory MCP for all bots in this process.
   let access;
   let httpHandle: { url: string; close: () => Promise<void> } | undefined;
-  let mcpUrl = opts.mcpUrl ?? resolved.mcpUrl;
+  let mcpUrl = opts.mcpUrl ?? resolvedList[0]!.mcpUrl;
+  const mcpToken = resolvedList[0]!.mcpToken;
 
-  // Default: embed HTTP MCP so Cursor can call memgrep tools. --no-server uses an existing one.
   if (!opts.noServer) {
     const { startHttpMcpServer } = await import('../../memory/mcp.js');
     const { LocalMemoryAccess } = await import('../../telegram/local-access.js');
     httpHandle = await startHttpMcpServer({
       host: '127.0.0.1',
-      authToken: resolved.mcpToken,
+      authToken: mcpToken,
     });
     mcpUrl = httpHandle.url;
     access = await LocalMemoryAccess.open();
@@ -66,7 +88,7 @@ async function startBot(opts: { noServer?: boolean; mcpUrl?: string }): Promise<
   } else {
     const { McpMemoryAccess } = await import('../../telegram/mcp-access.js');
     try {
-      access = await McpMemoryAccess.connect(mcpUrl, resolved.mcpToken);
+      access = await McpMemoryAccess.connect(mcpUrl, mcpToken);
     } catch (error) {
       fail(
         `Cannot reach MCP at ${mcpUrl}. Omit --no-server to start one in-process, or run "memgrep serve --http". (${error instanceof Error ? error.message : error})`,
@@ -74,27 +96,41 @@ async function startBot(opts: { noServer?: boolean; mcpUrl?: string }): Promise<
     }
   }
 
-  const cursorPool = new CursorAgentPool({
-    apiKey: resolved.cursorApiKey!,
-    cwd: resolved.cwd,
-    model: resolved.model,
-    mcpUrl,
-    mcpToken: resolved.mcpToken,
-    workspaces: resolved.workspaces,
-  });
+  const pools: InstanceType<typeof CursorAgentPool>[] = [];
+  const bots: InstanceType<typeof TelegramBot>[] = [];
 
-  console.error(`Cursor agent cwd: ${resolved.cwd} (model ${resolved.model})`);
+  for (const resolved of resolvedList) {
+    // Re-resolve in case ensureConfig wrote during setup for another profile.
+    const fresh = resolveTelegramConfig(process.env, undefined, resolved.profile) ?? resolved;
+    const cursorPool = new CursorAgentPool({
+      apiKey: fresh.cursorApiKey!,
+      cwd: fresh.cwd,
+      model: fresh.model,
+      mcpUrl,
+      mcpToken: fresh.mcpToken,
+      workspaces: fresh.workspaces,
+      profile: fresh.profile,
+    });
+    pools.push(cursorPool);
 
-  const bot = new TelegramBot({
-    botToken: resolved.botToken,
-    allowedUserIds: resolved.allowedUserIds,
-    access,
-    cursor: cursorPool,
-  });
+    const label = fresh.botUsername ? `@${fresh.botUsername}` : fresh.profile;
+    console.error(
+      `memgrep telegram [${fresh.profile}] ${label} cwd=${fresh.cwd} model=${fresh.model}`,
+    );
+
+    bots.push(
+      new TelegramBot({
+        botToken: fresh.botToken,
+        allowedUserIds: fresh.allowedUserIds,
+        access,
+        cursor: cursorPool,
+      }),
+    );
+  }
 
   const shutdown = async () => {
-    bot.stop();
-    await cursorPool.close();
+    for (const bot of bots) bot.stop();
+    await Promise.all(pools.map((p) => p.close()));
     await access.close?.();
     await httpHandle?.close();
     process.exit(0);
@@ -102,77 +138,195 @@ async function startBot(opts: { noServer?: boolean; mcpUrl?: string }): Promise<
   process.on('SIGINT', () => void shutdown());
   process.on('SIGTERM', () => void shutdown());
 
-  await bot.run();
+  await Promise.all(bots.map((bot) => bot.run()));
+}
+
+function printStatus(profile: string): Promise<void> {
+  return (async () => {
+    const {
+      resolveTelegramConfig,
+      readTelegramConfig,
+      redactToken,
+      telegramConfigPath,
+      sanitizeTelegramProfile,
+      migrateLegacyTelegramConfig,
+    } = await import('../../telegram/config.js');
+
+    migrateLegacyTelegramConfig();
+    const name = sanitizeTelegramProfile(profile);
+    const file = readTelegramConfig(undefined, name);
+    const resolved = resolveTelegramConfig(process.env, undefined, name);
+    if (!file && !resolved) {
+      console.log(`Telegram profile "${name}" is not configured.`);
+      console.log(`Run: memgrep telegram setup ${name}`);
+      return;
+    }
+    console.log(`Profile     : ${name}`);
+    console.log(`Config file : ${telegramConfigPath(undefined, name)}`);
+    if (file) {
+      console.log(`Bot         : ${file.botUsername ? `@${file.botUsername}` : '(unknown)'}`);
+      console.log(`Token       : ${redactToken(file.botToken)}`);
+      console.log(`Allowlist   : ${file.allowedUserIds.join(', ')}`);
+      if (file.cursorApiKey) {
+        console.log(`Cursor key  : ${redactToken(file.cursorApiKey)}`);
+      } else {
+        console.log('Cursor key  : (missing — run setup or set CURSOR_API_KEY)');
+      }
+      console.log(`cwd         : ${file.cwd ?? '(unset)'}`);
+      console.log(`model       : ${file.model ?? '(default)'}`);
+      if (file.workspaces?.length) {
+        console.log(`workspaces  : ${file.workspaces.map((w) => w.name).join(', ')}`);
+      }
+      console.log(`Updated     : ${file.updatedAt}`);
+    }
+    if (resolved) {
+      console.log(`Runtime src : ${resolved.source}`);
+      console.log(`Runtime cwd : ${resolved.cwd}`);
+      console.log(`Runtime mdl : ${resolved.model}`);
+      if (resolved.cursorApiKey) {
+        console.log(`Runtime key : ${redactToken(resolved.cursorApiKey)}`);
+      }
+      if (resolved.source !== 'file') {
+        console.log(`Runtime ids : ${[...resolved.allowedUserIds].join(', ')}`);
+        console.log(`Runtime tok : ${redactToken(resolved.botToken)}`);
+      }
+    }
+  })();
 }
 
 export function registerTelegramCommand(program: Command): void {
   const telegram = program
     .command('telegram')
     .description('Telegram bot: Cursor agent on your phone (memgrep memory via MCP + slash shortcuts)')
+    .option('-p, --profile <name>', 'bot profile (default: default, or sole profile)')
+    .option('--all', 'run every configured profile in this process')
     .option('--no-server', 'do not start embedded HTTP MCP; connect to --mcp-url instead')
     .option('--mcp-url <url>', 'MCP HTTP URL when using --no-server')
-    .action(async (opts: { server?: boolean; mcpUrl?: string }) => {
+    .action(async (opts: { profile?: string; all?: boolean; server?: boolean; mcpUrl?: string }) => {
       await loadDotenv();
-      // Commander maps --no-server → server: false (default server: true).
-      await startBot({ noServer: opts.server === false, mcpUrl: opts.mcpUrl });
+      const {
+        listTelegramProfiles,
+        migrateLegacyTelegramConfig,
+        resolveDefaultProfileName,
+        sanitizeTelegramProfile,
+      } = await import('../../telegram/config.js');
+
+      migrateLegacyTelegramConfig();
+
+      if (opts.all && opts.profile) {
+        fail('Use either --all or --profile, not both.');
+      }
+
+      let profiles: string[];
+      if (opts.all) {
+        profiles = listTelegramProfiles();
+        if (profiles.length === 0) {
+          fail('No telegram profiles configured. Run: memgrep telegram setup');
+        }
+      } else if (opts.profile) {
+        profiles = [sanitizeTelegramProfile(opts.profile)];
+      } else {
+        const envProfile = process.env.MEMGREP_TELEGRAM_PROFILE?.trim();
+        if (envProfile) {
+          profiles = [sanitizeTelegramProfile(envProfile)];
+        } else {
+          const picked = resolveDefaultProfileName();
+          if (!picked) {
+            const all = listTelegramProfiles();
+            if (all.length === 0) {
+              fail('Telegram is not configured. Run: memgrep telegram setup');
+            }
+            fail(
+              `Multiple profiles (${all.join(', ')}). Pick one: memgrep telegram --profile <name>\n` +
+                'Or run all: memgrep telegram --all',
+            );
+          }
+          profiles = [picked];
+        }
+      }
+
+      await startBots({
+        profiles,
+        noServer: opts.server === false,
+        mcpUrl: opts.mcpUrl,
+      });
     });
 
   telegram
     .command('setup')
-    .description('Onboarding: link Telegram (once) and/or add CURSOR_API_KEY + project cwd')
-    .action(async () => {
+    .description('Onboarding: link a BotFather bot and Cursor cwd/model for a profile')
+    .argument('[profile]', 'profile name', 'default')
+    .action(async (profile: string) => {
       await loadDotenv();
-      await ensureConfig(true);
+      await ensureConfig(true, profile);
     });
 
   telegram
     .command('status')
     .description('Show Telegram + Cursor link status (secrets redacted)')
-    .action(async () => {
+    .argument('[profile]', 'profile name (omit to list all)')
+    .action(async (profile?: string) => {
       await loadDotenv();
       const {
-        resolveTelegramConfig,
-        readTelegramConfig,
-        redactToken,
-        telegramConfigPath,
+        listTelegramProfiles,
+        migrateLegacyTelegramConfig,
+        resolveDefaultProfileName,
       } = await import('../../telegram/config.js');
-      const file = readTelegramConfig();
-      const resolved = resolveTelegramConfig();
-      if (!file && !resolved) {
+      migrateLegacyTelegramConfig();
+
+      if (profile) {
+        await printStatus(profile);
+        return;
+      }
+
+      const profiles = listTelegramProfiles();
+      if (profiles.length === 0) {
         console.log('Telegram is not configured.');
         console.log('Run: memgrep telegram setup');
         return;
       }
-      console.log(`Config file : ${telegramConfigPath()}`);
-      if (file) {
-        console.log(`Bot         : ${file.botUsername ? `@${file.botUsername}` : '(unknown)'}`);
-        console.log(`Token       : ${redactToken(file.botToken)}`);
-        console.log(`Allowlist   : ${file.allowedUserIds.join(', ')}`);
-        if (file.cursorApiKey) {
-          console.log(`Cursor key  : ${redactToken(file.cursorApiKey)}`);
-        } else {
-          console.log('Cursor key  : (missing — run setup or set CURSOR_API_KEY)');
-        }
-        console.log(`cwd         : ${file.cwd ?? '(unset)'}`);
-        console.log(`model       : ${file.model ?? '(default)'}`);
-        if (file.workspaces?.length) {
-          console.log(
-            `workspaces  : ${file.workspaces.map((w) => w.name).join(', ')}`,
-          );
-        }
-        console.log(`Updated     : ${file.updatedAt}`);
+      if (profiles.length === 1) {
+        await printStatus(profiles[0]!);
+        return;
       }
-      if (resolved) {
-        console.log(`Runtime src : ${resolved.source}`);
-        console.log(`Runtime cwd : ${resolved.cwd}`);
-        console.log(`Runtime mdl : ${resolved.model}`);
-        if (resolved.cursorApiKey) {
-          console.log(`Runtime key : ${redactToken(resolved.cursorApiKey)}`);
-        }
-        if (resolved.source !== 'file') {
-          console.log(`Runtime ids : ${[...resolved.allowedUserIds].join(', ')}`);
-          console.log(`Runtime tok : ${redactToken(resolved.botToken)}`);
-        }
+
+      console.log(`Profiles (${profiles.length}):\n`);
+      for (const name of profiles) {
+        await printStatus(name);
+        console.log('');
+      }
+      const def = resolveDefaultProfileName();
+      if (def) {
+        console.log(`Default when no --profile: ${def}`);
+      } else {
+        console.log('No default — pass --profile <name> or --all');
+      }
+    });
+
+  telegram
+    .command('list')
+    .description('List configured bot profiles')
+    .action(async () => {
+      await loadDotenv();
+      const {
+        listTelegramProfiles,
+        migrateLegacyTelegramConfig,
+        readTelegramConfig,
+        telegramConfigPath,
+      } = await import('../../telegram/config.js');
+      migrateLegacyTelegramConfig();
+      const profiles = listTelegramProfiles();
+      if (profiles.length === 0) {
+        console.log('No profiles. Run: memgrep telegram setup [name]');
+        return;
+      }
+      for (const name of profiles) {
+        const file = readTelegramConfig(undefined, name);
+        const bot = file?.botUsername ? `@${file.botUsername}` : '(no bot)';
+        const cwd = file?.cwd ?? '(unset)';
+        const model = file?.model ?? '(default)';
+        console.log(`${name}\t${bot}\t${model}\t${cwd}`);
+        console.log(`  ${telegramConfigPath(undefined, name)}`);
       }
     });
 }

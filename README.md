@@ -111,14 +111,18 @@ First run walks you through:
 1. Linking a [@BotFather](https://t.me/BotFather) token and capturing your user id via `/start`
 2. Pasting your Cursor API key and choosing a project directory
 
-Credentials are saved to `~/.memgrep/telegram.json` (mode `0600`). The bot starts an embedded loopback HTTP MCP so Cursor can call memgrep (`recall`, `get_chat`, `list_chats`, `remember`) mid-task.
+Credentials are saved under `~/.memgrep/telegram/<profile>.json` (mode `0600`; legacy `telegram.json` migrates to `telegram/default.json`). The bot starts an embedded loopback HTTP MCP so Cursor can call memgrep (`recall`, `get_chat`, `list_chats`, `remember`) mid-task.
 
 ```bash
-memgrep telegram setup    # re-run onboarding
-memgrep telegram status   # show redacted tokens + cwd/model
+memgrep telegram setup              # default profile
+memgrep telegram setup career       # second BotFather bot + cwd/model
+memgrep telegram --profile career
+memgrep telegram --all              # run every profile in one process
+memgrep telegram list
+memgrep telegram status             # all profiles, or: status career
 ```
 
-Leave `memgrep telegram` running. On your phone:
+Leave `memgrep telegram` (or `--all`) running. On your phone:
 
 - free text / `/ask …` → Cursor agent (edits/runs in the configured cwd)
 - `/ws` → list saved workspaces (`*` = current)
@@ -133,7 +137,7 @@ Leave `memgrep telegram` running. On your phone:
 
 Only allowlisted Telegram user ids get answers; everyone else is ignored.
 
-**Optional env overrides:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `CURSOR_API_KEY`, `MEMGREP_TELEGRAM_CWD`, `MEMGREP_TELEGRAM_MODEL`. If Telegram bot credentials are set in env and no config file exists yet, memgrep migrates them into `telegram.json` once.
+**Optional env overrides:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS` (default profile only), `CURSOR_API_KEY`, `MEMGREP_TELEGRAM_CWD`, `MEMGREP_TELEGRAM_MODEL`, `MEMGREP_TELEGRAM_PROFILE`. If Telegram bot credentials are set in env and no profile exists yet, memgrep migrates them into `telegram/default.json` once.
 
 **Two processes instead of one:** run `memgrep serve --http` in one terminal and `memgrep telegram --no-server` in another (bot + Cursor MCP URL default to `http://127.0.0.1:3921/mcp`, override with `MEMGREP_MCP_URL`).
 

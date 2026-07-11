@@ -1,9 +1,12 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { defaultHome } from '../memory/store.js';
 
+/** Legacy single-bot file (migrated to telegram/default.json). */
 export const TELEGRAM_CONFIG_FILE = 'telegram.json';
+export const TELEGRAM_PROFILES_DIR = 'telegram';
+export const DEFAULT_TELEGRAM_PROFILE = 'default';
 export const DEFAULT_CURSOR_MODEL = 'composer-2.5';
 
 export type TelegramWorkspace = {
@@ -29,6 +32,7 @@ export type TelegramConfig = {
 };
 
 export type ResolvedTelegramConfig = {
+  profile: string;
   botToken: string;
   allowedUserIds: ReadonlySet<number>;
   botUsername?: string;
@@ -43,8 +47,77 @@ export type ResolvedTelegramConfig = {
   source: 'file' | 'env' | 'mixed';
 };
 
-export function telegramConfigPath(home = defaultHome()): string {
+export function telegramProfilesDir(home = defaultHome()): string {
+  return path.join(home, TELEGRAM_PROFILES_DIR);
+}
+
+export function legacyTelegramConfigPath(home = defaultHome()): string {
   return path.join(home, TELEGRAM_CONFIG_FILE);
+}
+
+/** Normalize a profile name: lowercase, [a-z0-9_-], 1–64 chars. */
+export function sanitizeTelegramProfile(raw: string): string {
+  const name = raw.trim().toLowerCase();
+  if (!name) {
+    throw new Error('Profile name is required.');
+  }
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)) {
+    throw new Error(
+      `Invalid profile "${raw}". Use letters, numbers, _ or - (max 64), starting with alphanumeric.`,
+    );
+  }
+  return name;
+}
+
+export function telegramConfigPath(
+  home = defaultHome(),
+  profile: string = DEFAULT_TELEGRAM_PROFILE,
+): string {
+  return path.join(telegramProfilesDir(home), `${sanitizeTelegramProfile(profile)}.json`);
+}
+
+/**
+ * Move ~/.memgrep/telegram.json → ~/.memgrep/telegram/default.json once.
+ * Returns the profile name if a migration ran.
+ */
+export function migrateLegacyTelegramConfig(home = defaultHome()): string | null {
+  const legacy = legacyTelegramConfigPath(home);
+  const dest = telegramConfigPath(home, DEFAULT_TELEGRAM_PROFILE);
+  if (!existsSync(legacy) || existsSync(dest)) return null;
+  mkdirSync(telegramProfilesDir(home), { recursive: true });
+  renameSync(legacy, dest);
+  return DEFAULT_TELEGRAM_PROFILE;
+}
+
+export function listTelegramProfiles(home = defaultHome()): string[] {
+  migrateLegacyTelegramConfig(home);
+  const dir = telegramProfilesDir(home);
+  if (!existsSync(dir)) {
+    // Still support unmigrated legacy for status before any write.
+    if (existsSync(legacyTelegramConfigPath(home))) return [DEFAULT_TELEGRAM_PROFILE];
+    return [];
+  }
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => f.slice(0, -'.json'.length))
+    .filter((name) => {
+      try {
+        sanitizeTelegramProfile(name);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .sort();
+}
+
+/** Pick which profile to run when --profile is omitted. */
+export function resolveDefaultProfileName(home = defaultHome()): string | null {
+  const profiles = listTelegramProfiles(home);
+  if (profiles.length === 0) return null;
+  if (profiles.includes(DEFAULT_TELEGRAM_PROFILE)) return DEFAULT_TELEGRAM_PROFILE;
+  if (profiles.length === 1) return profiles[0]!;
+  return null;
 }
 
 export function expandHomePath(raw: string): string {
@@ -121,14 +194,48 @@ export function formatWorkspaceList(workspaces: TelegramWorkspace[], currentCwd:
   return `Workspaces (* = current):\n\n${lines.join('\n\n')}\n\nSwitch: /ws <number|name>`;
 }
 
-export function readTelegramConfig(home = defaultHome()): TelegramConfig | null {
-  const filePath = telegramConfigPath(home);
-  if (!existsSync(filePath)) return null;
+function readConfigFile(filePath: string): TelegramConfig {
   const raw = JSON.parse(readFileSync(filePath, 'utf8')) as TelegramConfig;
   if (raw.version !== 1 || typeof raw.botToken !== 'string' || !Array.isArray(raw.allowedUserIds)) {
     throw new Error(`Invalid telegram config at ${filePath}`);
   }
   return raw;
+}
+
+export function readTelegramConfig(
+  home = defaultHome(),
+  profile: string = DEFAULT_TELEGRAM_PROFILE,
+): TelegramConfig | null {
+  migrateLegacyTelegramConfig(home);
+  const name = sanitizeTelegramProfile(profile);
+  const filePath = telegramConfigPath(home, name);
+  if (existsSync(filePath)) return readConfigFile(filePath);
+
+  // Unmigrated legacy only maps to the default profile.
+  if (name === DEFAULT_TELEGRAM_PROFILE) {
+    const legacy = legacyTelegramConfigPath(home);
+    if (existsSync(legacy)) return readConfigFile(legacy);
+  }
+  return null;
+}
+
+/** First profile that already has a Cursor API key (for reuse during setup). */
+export function findSharedCursorApiKey(
+  home = defaultHome(),
+  preferProfile?: string,
+): string | undefined {
+  const order = [
+    ...(preferProfile ? [sanitizeTelegramProfile(preferProfile)] : []),
+    ...listTelegramProfiles(home),
+  ];
+  const seen = new Set<string>();
+  for (const name of order) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const key = readTelegramConfig(home, name)?.cursorApiKey?.trim();
+    if (key) return key;
+  }
+  return undefined;
 }
 
 export function writeTelegramConfig(
@@ -137,9 +244,12 @@ export function writeTelegramConfig(
     updatedAt?: string;
   },
   home = defaultHome(),
+  profile: string = DEFAULT_TELEGRAM_PROFILE,
 ): TelegramConfig {
-  mkdirSync(home, { recursive: true });
-  const existing = readTelegramConfig(home);
+  migrateLegacyTelegramConfig(home);
+  const name = sanitizeTelegramProfile(profile);
+  mkdirSync(telegramProfilesDir(home), { recursive: true });
+  const existing = readTelegramConfig(home, name);
   const now = new Date().toISOString();
   const cwd = config.cwd ?? existing?.cwd;
   const workspaces = normalizeWorkspaces(
@@ -160,7 +270,7 @@ export function writeTelegramConfig(
   };
   // Allow explicit clears via empty string → omit
   if (config.cursorApiKey === '') delete next.cursorApiKey;
-  writeFileSync(telegramConfigPath(home), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(telegramConfigPath(home, name), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
   return next;
 }
 
@@ -172,10 +282,14 @@ export function updateTelegramConfig(
     >
   >,
   home = defaultHome(),
+  profile: string = DEFAULT_TELEGRAM_PROFILE,
 ): TelegramConfig {
-  const existing = readTelegramConfig(home);
+  const name = sanitizeTelegramProfile(profile);
+  const existing = readTelegramConfig(home, name);
   if (!existing) {
-    throw new Error(`No telegram config at ${telegramConfigPath(home)}. Run: memgrep telegram setup`);
+    throw new Error(
+      `No telegram config at ${telegramConfigPath(home, name)}. Run: memgrep telegram setup ${name}`,
+    );
   }
   return writeTelegramConfig(
     {
@@ -188,6 +302,7 @@ export function updateTelegramConfig(
       model: patch.model ?? existing.model,
     },
     home,
+    name,
   );
 }
 
@@ -205,26 +320,32 @@ export function parseUserIdList(raw: string | undefined): number[] {
 }
 
 /**
- * Resolve runtime config from ~/.memgrep/telegram.json with optional env overrides.
+ * Resolve runtime config for a profile from disk with optional env overrides.
  * Does not throw if missing — caller decides whether to run setup.
  */
 export function resolveTelegramConfig(
   env: NodeJS.ProcessEnv = process.env,
   home = defaultHome(),
+  profile: string = DEFAULT_TELEGRAM_PROFILE,
 ): ResolvedTelegramConfig | null {
-  const file = readTelegramConfig(home);
+  migrateLegacyTelegramConfig(home);
+  const name = sanitizeTelegramProfile(profile);
+  const file = readTelegramConfig(home, name);
   const envToken = env.TELEGRAM_BOT_TOKEN?.trim();
   const envIds = parseUserIdList(env.TELEGRAM_ALLOWED_USER_IDS);
 
-  const botToken = envToken || file?.botToken;
-  const allowedUserIds = envIds.length > 0 ? envIds : (file?.allowedUserIds ?? []);
+  // Env bot credentials only apply to the default profile (legacy single-bot).
+  const useEnvBot = name === DEFAULT_TELEGRAM_PROFILE;
+  const botToken = (useEnvBot ? envToken : undefined) || file?.botToken;
+  const allowedUserIds =
+    useEnvBot && envIds.length > 0 ? envIds : (file?.allowedUserIds ?? []);
 
   if (!botToken || allowedUserIds.length === 0) {
     return null;
   }
 
   let source: ResolvedTelegramConfig['source'] = 'file';
-  if (envToken || envIds.length > 0) {
+  if (useEnvBot && (envToken || envIds.length > 0)) {
     source = file ? 'mixed' : 'env';
   }
 
@@ -234,6 +355,7 @@ export function resolveTelegramConfig(
   const model = env.MEMGREP_TELEGRAM_MODEL?.trim() || file?.model || DEFAULT_CURSOR_MODEL;
 
   return {
+    profile: name,
     botToken,
     allowedUserIds: new Set(allowedUserIds),
     botUsername: file?.botUsername,
@@ -243,17 +365,18 @@ export function resolveTelegramConfig(
     model,
     mcpUrl: (env.MEMGREP_MCP_URL ?? 'http://127.0.0.1:3921/mcp').replace(/\/$/, ''),
     mcpToken: env.MEMGREP_MCP_TOKEN,
-    configPath: telegramConfigPath(home),
+    configPath: telegramConfigPath(home, name),
     source,
   };
 }
 
-/** One-shot migrate: if env has full credentials and no file yet, persist them. */
+/** One-shot migrate: if env has full credentials and no profiles yet, persist default. */
 export function maybeMigrateEnvToConfig(
   env: NodeJS.ProcessEnv = process.env,
   home = defaultHome(),
 ): TelegramConfig | null {
-  if (readTelegramConfig(home)) return null;
+  migrateLegacyTelegramConfig(home);
+  if (listTelegramProfiles(home).length > 0) return null;
   const botToken = env.TELEGRAM_BOT_TOKEN?.trim();
   const allowedUserIds = parseUserIdList(env.TELEGRAM_ALLOWED_USER_IDS);
   if (!botToken || allowedUserIds.length === 0) return null;
@@ -266,5 +389,6 @@ export function maybeMigrateEnvToConfig(
       model: env.MEMGREP_TELEGRAM_MODEL?.trim(),
     },
     home,
+    DEFAULT_TELEGRAM_PROFILE,
   );
 }

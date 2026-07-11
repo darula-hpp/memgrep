@@ -4,8 +4,12 @@ import { stdin as input, stdout as output } from 'node:process';
 import { TelegramApi } from './api.js';
 import {
   DEFAULT_CURSOR_MODEL,
+  DEFAULT_TELEGRAM_PROFILE,
   expandHomePath,
+  findSharedCursorApiKey,
   readTelegramConfig,
+  sanitizeTelegramProfile,
+  telegramConfigPath,
   writeTelegramConfig,
   type TelegramConfig,
 } from './config.js';
@@ -25,6 +29,8 @@ async function prompt(rl: ReturnType<typeof createInterface>, question: string):
 async function promptCursorFields(
   rl: ReturnType<typeof createInterface>,
   options: {
+    home: string;
+    profile: string;
     existingCursorApiKey?: string;
     existingCwd?: string;
     existingModel?: string;
@@ -34,10 +40,12 @@ async function promptCursorFields(
   console.log('\nCursor agent (billed against your Cursor plan)');
   console.log('Get a key: https://cursor.com/dashboard/integrations\n');
 
+  const sharedKey = findSharedCursorApiKey(options.home, options.profile);
   let cursorApiKey =
     options.existing?.cursorApiKey ||
     options.existingCursorApiKey?.trim() ||
     process.env.CURSOR_API_KEY?.trim() ||
+    sharedKey ||
     '';
   if (!cursorApiKey) {
     cursorApiKey = await prompt(rl, 'Paste CURSOR_API_KEY: ');
@@ -51,6 +59,8 @@ async function promptCursorFields(
     } else {
       console.log('Keeping existing Cursor API key.');
     }
+  } else if (sharedKey && cursorApiKey === sharedKey && !options.existingCursorApiKey) {
+    console.log(`Reusing CURSOR_API_KEY from another profile (${redactHint(cursorApiKey)}).`);
   } else {
     console.log(`Using CURSOR_API_KEY from environment (${redactHint(cursorApiKey)}).`);
   }
@@ -78,25 +88,31 @@ async function promptCursorFields(
  */
 export async function runCursorSetup(options: {
   home?: string;
+  profile?: string;
   existingCursorApiKey?: string;
   existingCwd?: string;
   existingModel?: string;
 } = {}): Promise<TelegramConfig> {
   const home = options.home ?? defaultHome();
-  const existing = readTelegramConfig(home);
+  const profile = sanitizeTelegramProfile(options.profile ?? DEFAULT_TELEGRAM_PROFILE);
+  const existing = readTelegramConfig(home, profile);
   if (!existing?.botToken || existing.allowedUserIds.length === 0) {
-    throw new Error('Telegram is not linked yet. Run: memgrep telegram setup');
+    throw new Error(`Telegram profile "${profile}" is not linked yet. Run: memgrep telegram setup ${profile}`);
   }
 
   const rl = createInterface({ input, output });
   try {
-    console.log('memgrep telegram — Cursor setup');
+    console.log(`memgrep telegram — Cursor setup [${profile}]`);
     console.log('--------------------------------');
     console.log(`Bot already linked${existing.botUsername ? ` (@${existing.botUsername})` : ''}.`);
     console.log(`Allowlist: ${existing.allowedUserIds.join(', ')}\n`);
 
     const { cursorApiKey, cwd, model } = await promptCursorFields(rl, {
-      ...options,
+      home,
+      profile,
+      existingCursorApiKey: options.existingCursorApiKey,
+      existingCwd: options.existingCwd,
+      existingModel: options.existingModel,
       existing,
     });
 
@@ -110,12 +126,17 @@ export async function runCursorSetup(options: {
         model,
       },
       home,
+      profile,
     );
 
-    console.log(`\nSaved → ${home}/telegram.json`);
+    console.log(`\nSaved → ${telegramConfigPath(home, profile)}`);
     console.log(`Cursor cwd : ${cwd}`);
     console.log(`Model      : ${model}`);
-    console.log('Run: memgrep telegram');
+    console.log(
+      profile === DEFAULT_TELEGRAM_PROFILE
+        ? 'Run: memgrep telegram'
+        : `Run: memgrep telegram --profile ${profile}`,
+    );
     return config;
   } finally {
     rl.close();
@@ -128,6 +149,7 @@ export async function runCursorSetup(options: {
  */
 export async function runTelegramSetup(options: {
   home?: string;
+  profile?: string;
   existingToken?: string;
   existingCursorApiKey?: string;
   existingCwd?: string;
@@ -136,12 +158,14 @@ export async function runTelegramSetup(options: {
   forceRelink?: boolean;
 } = {}): Promise<TelegramConfig> {
   const home = options.home ?? defaultHome();
-  const existing = readTelegramConfig(home);
+  const profile = sanitizeTelegramProfile(options.profile ?? DEFAULT_TELEGRAM_PROFILE);
+  const existing = readTelegramConfig(home, profile);
 
   // Already linked: only collect Cursor fields (no Telegram network required).
   if (!options.forceRelink && existing?.botToken && existing.allowedUserIds.length > 0) {
     return runCursorSetup({
       home,
+      profile,
       existingCursorApiKey: options.existingCursorApiKey,
       existingCwd: options.existingCwd,
       existingModel: options.existingModel,
@@ -151,7 +175,7 @@ export async function runTelegramSetup(options: {
   const rl = createInterface({ input, output });
 
   try {
-    console.log('memgrep telegram setup');
+    console.log(`memgrep telegram setup [${profile}]`);
     console.log('----------------------');
     console.log('1. Open Telegram and talk to @BotFather');
     console.log('2. Create a bot with /newbot (or reuse an existing one)');
@@ -175,7 +199,7 @@ export async function runTelegramSetup(options: {
     } catch (error) {
       throw new Error(
         `Could not reach Telegram API: ${formatFetchError(error)}\n` +
-          'Check network/DNS, then retry. If the bot is already linked, run: memgrep telegram setup',
+          `Check network/DNS, then retry. If the bot is already linked, run: memgrep telegram setup ${profile}`,
       );
     }
     const username = me.username ? `@${me.username}` : me.first_name ?? 'your bot';
@@ -216,6 +240,8 @@ export async function runTelegramSetup(options: {
     }
 
     const { cursorApiKey, cwd, model } = await promptCursorFields(rl, {
+      home,
+      profile,
       existingCursorApiKey: options.existingCursorApiKey,
       existingCwd: options.existingCwd,
       existingModel: options.existingModel,
@@ -232,6 +258,7 @@ export async function runTelegramSetup(options: {
         model,
       },
       home,
+      profile,
     );
 
     if (chatId !== undefined) {
@@ -241,10 +268,14 @@ export async function runTelegramSetup(options: {
       );
     }
 
-    console.log(`\nSaved → ${home}/telegram.json`);
+    console.log(`\nSaved → ${telegramConfigPath(home, profile)}`);
     console.log(`Cursor cwd : ${cwd}`);
     console.log(`Model      : ${model}`);
-    console.log('Run: memgrep telegram');
+    console.log(
+      profile === DEFAULT_TELEGRAM_PROFILE
+        ? 'Run: memgrep telegram'
+        : `Run: memgrep telegram --profile ${profile}`,
+    );
     return config;
   } finally {
     rl.close();
