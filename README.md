@@ -120,9 +120,15 @@ memgrep telegram --profile career
 memgrep telegram --all              # run every profile in one process
 memgrep telegram list
 memgrep telegram status             # all profiles, or: status career
+memgrep telegram install            # macOS LaunchAgent (always-on while Mac is awake)
+memgrep telegram install --all
+memgrep telegram service            # LaunchAgent loaded?
+memgrep telegram uninstall
 ```
 
-Leave `memgrep telegram` (or `--all`) running. On your phone:
+**Always-on (macOS):** `memgrep telegram install` writes `~/Library/LaunchAgents/com.memgrep.telegram.plist`, loads it with `launchctl`, and keeps the bot alive across logout/reboot. Logs go to `~/.memgrep/logs/telegram-launchd.log`. Stop any foreground `memgrep telegram` first (only one poller per bot token). The agent still pauses while the Mac is asleep or offline — for true 24/7, run on a desktop/VPS that stays powered.
+
+Leave `memgrep telegram` (or `--all`) running, or use `install` instead. On your phone:
 
 - free text / `/ask …` → Cursor agent (edits/runs in the configured cwd)
 - `/ws` → list saved workspaces (`*` = current)

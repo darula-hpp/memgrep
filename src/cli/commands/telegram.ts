@@ -329,4 +329,124 @@ export function registerTelegramCommand(program: Command): void {
         console.log(`  ${telegramConfigPath(undefined, name)}`);
       }
     });
+
+  telegram
+    .command('install')
+    .description('Install a macOS LaunchAgent so the bot stays running (survives logout/reboot)')
+    .option('-p, --profile <name>', 'run this profile under launchd')
+    .option('--all', 'run every configured profile under launchd')
+    .action(async (opts: { profile?: string; all?: boolean }) => {
+      await loadDotenv();
+      if (process.platform !== 'darwin') {
+        fail('LaunchAgent install is only supported on macOS.');
+      }
+      if (opts.all && opts.profile) {
+        fail('Use either --all or --profile, not both.');
+      }
+
+      const {
+        listTelegramProfiles,
+        migrateLegacyTelegramConfig,
+        resolveDefaultProfileName,
+        resolveTelegramConfig,
+        sanitizeTelegramProfile,
+      } = await import('../../telegram/config.js');
+      const { installLaunchdService } = await import('../../telegram/launchd.js');
+
+      migrateLegacyTelegramConfig();
+
+      let mode: { kind: 'default' } | { kind: 'all' } | { kind: 'profile'; profile: string };
+      if (opts.all) {
+        const profiles = listTelegramProfiles();
+        if (profiles.length === 0) {
+          fail('No telegram profiles configured. Run: memgrep telegram setup');
+        }
+        for (const name of profiles) {
+          const resolved = resolveTelegramConfig(process.env, undefined, name);
+          if (!resolved?.cursorApiKey) {
+            fail(`Profile "${name}" is incomplete. Run: memgrep telegram setup ${name}`);
+          }
+        }
+        mode = { kind: 'all' };
+      } else if (opts.profile) {
+        const name = sanitizeTelegramProfile(opts.profile);
+        const resolved = resolveTelegramConfig(process.env, undefined, name);
+        if (!resolved?.cursorApiKey) {
+          fail(`Profile "${name}" is incomplete. Run: memgrep telegram setup ${name}`);
+        }
+        mode = { kind: 'profile', profile: name };
+      } else {
+        const picked = resolveDefaultProfileName();
+        if (!picked) {
+          const all = listTelegramProfiles();
+          if (all.length === 0) {
+            fail('Telegram is not configured. Run: memgrep telegram setup');
+          }
+          fail(
+            `Multiple profiles (${all.join(', ')}). Pick one: memgrep telegram install --profile <name>\n` +
+              'Or install all: memgrep telegram install --all',
+          );
+        }
+        const resolved = resolveTelegramConfig(process.env, undefined, picked);
+        if (!resolved?.cursorApiKey) {
+          fail(`Profile "${picked}" is incomplete. Run: memgrep telegram setup ${picked}`);
+        }
+        mode = { kind: 'default' };
+      }
+
+      console.error(
+        'Stop any foreground "memgrep telegram" first (Ctrl-C) — only one poller can use the bot token.',
+      );
+      const status = installLaunchdService({ mode });
+      console.log(`Installed LaunchAgent: ${status.label}`);
+      console.log(`Plist : ${status.plistPath}`);
+      console.log(`Loaded: ${status.loaded ? 'yes' : 'no (check logs)'}`);
+      console.log(`Logs  : ${status.logPath}`);
+      if (status.programArgs) {
+        console.log(`Run   : ${status.programArgs.join(' ')}`);
+      }
+      console.log('');
+      console.log('The bot restarts on logout/reboot. It still pauses while this Mac is asleep or offline.');
+      console.log('Unload later with: memgrep telegram uninstall');
+    });
+
+  telegram
+    .command('uninstall')
+    .description('Remove the macOS LaunchAgent installed by "telegram install"')
+    .action(async () => {
+      await loadDotenv();
+      if (process.platform !== 'darwin') {
+        fail('LaunchAgent uninstall is only supported on macOS.');
+      }
+      const { uninstallLaunchdService, getLaunchdStatus } = await import('../../telegram/launchd.js');
+      const before = getLaunchdStatus();
+      if (!before.installed) {
+        console.log('No memgrep Telegram LaunchAgent is installed.');
+        return;
+      }
+      const status = uninstallLaunchdService();
+      console.log(`Removed LaunchAgent: ${status.label}`);
+      console.log(`Plist gone: ${status.plistPath}`);
+    });
+
+  telegram
+    .command('service')
+    .description('Show macOS LaunchAgent status for the Telegram bot')
+    .action(async () => {
+      await loadDotenv();
+      const { getLaunchdStatus } = await import('../../telegram/launchd.js');
+      const status = getLaunchdStatus();
+      console.log(`Label    : ${status.label}`);
+      console.log(`Installed: ${status.installed ? 'yes' : 'no'}`);
+      console.log(`Loaded   : ${status.loaded ? 'yes' : 'no'}`);
+      console.log(`Plist    : ${status.plistPath}`);
+      console.log(`Logs     : ${status.logPath}`);
+      if (status.programArgs) {
+        console.log(`Run      : ${status.programArgs.join(' ')}`);
+      }
+      if (!status.installed) {
+        console.log('');
+        console.log('Install with: memgrep telegram install');
+      }
+    });
 }

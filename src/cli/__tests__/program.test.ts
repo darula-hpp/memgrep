@@ -63,7 +63,7 @@ describe('createProgram', () => {
       expect.arrayContaining(['-p, --profile <name>', '--all', '--no-server', '--mcp-url <url>']),
     );
     const sub = tg!.commands.map((c) => c.name()).sort();
-    expect(sub).toEqual(['list', 'setup', 'status']);
+    expect(sub).toEqual(['install', 'list', 'service', 'setup', 'status', 'uninstall']);
   });
 
   it('prints help for --help without throwing', async () => {
