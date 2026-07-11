@@ -1,7 +1,7 @@
 {
   "name": "memgrep",
-  "version": "0.1.3",
-  "description": "Searchable, local memory for coding agents. Ingest chats from Cursor, Claude Code, and Kiro; recall them anywhere via CLI or MCP. No servers, no API keys.",
+  "version": "1.0.0",
+  "description": "Local agent memory and Cursor from your phone. Ingest chats across Cursor, Claude Code, and Kiro; recall via CLI or MCP; drive a real Cursor agent over Telegram — multi-profile, always-on on macOS.",
   "keywords": [
     "semantic-search",
     "vector-search",
@@ -14,7 +14,12 @@
     "mcp",
     "agent-memory",
     "cursor",
-    "claude-code"
+    "cursor-agent",
+    "claude-code",
+    "telegram",
+    "telegram-bot",
+    "coding-agent",
+    "remote-agent"
   ],
   "license": "MIT",
   "repository": {

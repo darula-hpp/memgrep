@@ -1,10 +1,12 @@
 # memgrep
 
-Grep your memory. memgrep gives your coding agents a global, searchable, fully local memory of every chat you've ever had with them, across every project and every tool, plus embedded semantic search you can build into your own apps.
+Local agent memory — and Cursor from your phone.
 
-- **Your context survives beyond chats.** Agent sessions die; what you learned in them shouldn't. memgrep ingests chat history from Cursor, Claude Code, and Kiro into one memory, and serves it back to any MCP-capable agent mid-task.
-- **Fully local.** Embeddings run on-device via [Transformers.js](https://github.com/huggingface/transformers.js) (Hugging Face models, ONNX/WASM). No API keys, no cloud, no data leaving your machine. That matters, because your chat history contains your code.
-- **Real infrastructure, zero servers.** SQLite for records, [hnswlib](https://github.com/yoshoku/hnswlib-node) HNSW for fast approximate nearest-neighbor retrieval. One folder is a complete, portable memory.
+memgrep started as searchable memory for coding agents. It still is that: every chat across Cursor, Claude Code, and Kiro, fully local, recallable via CLI or MCP. It also grew into a thin remote coding path: an allowlisted Telegram bot that drives a **real Cursor agent** in a real project folder, with memgrep memory attached mid-task. Cursor is the runtime you already pay for; memgrep is the memory; Telegram is the channel.
+
+- **Memory that outlives sessions.** Ingest transcripts from Cursor, Claude Code, and Kiro into one local store. Any MCP-capable agent can `recall` / `get_chat` / `remember` mid-task.
+- **Cursor from your phone.** `memgrep telegram` long-polls Telegram’s cloud, runs `@cursor/sdk` against a cwd on your machine, and streams replies back. Multi-profile bots, workspace switching, macOS LaunchAgent for always-on while the Mac is awake.
+- **Fully local memory plane.** Embeddings on-device via [Transformers.js](https://github.com/huggingface/transformers.js). SQLite + [hnswlib](https://github.com/yoshoku/hnswlib-node) HNSW. No cloud for your chat archive — your history contains your code.
 
 ## Demo
 
@@ -12,20 +14,33 @@ Grep your memory. memgrep gives your coding agents a global, searchable, fully l
 
 ## Why
 
-You solved a tricky auth bug with an agent three weeks ago, in another project, in a different editor. Today's agent has no idea that ever happened. The knowledge exists (your tools keep transcripts on disk) but it is siloed per project, per tool, and invisible to search.
+Two problems, one tool:
 
-memgrep turns that pile of transcripts into one queryable memory. You ask in plain language ("how did we fix the recon variance?"), it finds the conversation where that happened, and either you or your agent pulls the whole thing back into context.
+1. **Siloed agent history.** You fixed an auth bug three weeks ago in another editor. Today’s agent has no idea. Transcripts exist on disk but aren’t searchable across tools.
+2. **Remote coding without a gateway.** You want to text an agent from your phone and get real work done in a repo — not stand up a second agent platform. memgrep uses Telegram as the remote and Cursor as the brain.
+
+memgrep turns the transcript pile into one queryable memory, and optionally puts that memory (plus a live Cursor agent) behind a Telegram bot you already know how to use.
 
 ## Quickstart
 
+**Memory**
+
 ```bash
 npm install -g memgrep
-memgrep ingest                                  # index your chat history (one-time scan, then incremental)
+memgrep ingest                                  # index chat history (incremental after first run)
 memgrep recall "how did we fix the auth race?"  # search memory
 memgrep copy                                    # top hit -> clipboard
 ```
 
-Requires Node.js 18+. Native addons (hnswlib, better-sqlite3) build on install. The embedding model (~25 MB) downloads once on first run; everything after that is offline. Full command list below.
+**Cursor from your phone**
+
+```bash
+memgrep telegram          # first run: BotFather token + Cursor API key + project cwd
+# or keep it always-on on macOS:
+memgrep telegram install  # LaunchAgent (survives logout/reboot; pauses if Mac sleeps)
+```
+
+Requires Node.js 18+. Native addons (hnswlib, better-sqlite3) build on install. The embedding model (~25 MB) downloads once on first run; memory search is offline after that. Telegram + Cursor need network and a [`CURSOR_API_KEY`](https://cursor.com/dashboard/integrations). Full command list below.
 
 ## Agent memory
 
@@ -98,9 +113,11 @@ Config locations: Cursor `~/.cursor/mcp.json`, Claude Code `claude mcp add memgr
 
 The agent gets four tools: `recall(query)`, `get_chat(id)`, `list_chats(project?)`, and `remember(text, title?, project?)`. Retrieval finds which chat matters; the agent pulls the full transcript into context or stores a durable note. An agent in Kiro can recall a fix from a Cursor chat last month.
 
-### Telegram (from your phone)
+## Cursor from your phone (Telegram)
 
 Chat with a **local Cursor agent** from Telegram. You do **not** need to be on the same Wi‑Fi — Telegram’s cloud reaches a long-polling process on your Mac. Usage is billed against your **Cursor plan** (same token pool as the IDE; tagged SDK in the dashboard). You need a [`CURSOR_API_KEY`](https://cursor.com/dashboard/integrations).
+
+Compared to a full agent gateway (e.g. OpenClaw): memgrep keeps the stack thin — Telegram is the remote channel, Cursor is the runtime, memgrep is the memory. Multi-profile bots and a macOS LaunchAgent cover the day-to-day “text from anywhere” loop without a second control plane.
 
 ```bash
 memgrep telegram
@@ -251,6 +268,7 @@ Reliability: SQLite is the source of truth and the vector index is a rebuildable
 - **`delete` is not permanent against re-ingest.** If the source transcript still exists on disk, the next scan re-adds it. Wipe the transcript too, or don't re-scan that source.
 - **One writer at a time.** Concurrent memgrep processes can race on the index file; the self-heal repairs any loss on next open, but there is no cross-process lock yet.
 - **Recall quality tracks what was said.** Sessions where the signal lived in tool output (which is stripped) search poorly. A one-line `memgrep remember` in your own words is often the highest-value thing you can store.
+- **Telegram still needs a host that stays up.** LaunchAgent survives logout/reboot on macOS, but the bot pauses while the Mac sleeps or is offline. True 24/7 means a desktop/VPS that stays powered. Cursor usage is billed to your Cursor plan.
 
 ## Roadmap
 
@@ -258,6 +276,7 @@ Reliability: SQLite is the source of truth and the vector index is a rebuildable
 - Tombstones so `delete` survives re-ingest
 - More sources (Antigravity if its format opens up, Codex CLI, Windsurf)
 - Watch mode / background daemon for continuous ingest
+- Linux systemd unit alongside the macOS LaunchAgent
 - Browser support for the library via a WASM HNSW index
 
 ## Development

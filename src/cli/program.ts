@@ -17,8 +17,8 @@ export function createProgram(): Command {
 
   program
     .name('memgrep')
-    .description('Local semantic search over your files and agent chats')
-    .version('0.1.3')
+    .description('Local agent memory + Cursor from your phone (Telegram), MCP, and semantic file search')
+    .version('1.0.0')
     .showHelpAfterError()
     .configureHelp({ sortSubcommands: true })
     .action(() => {
