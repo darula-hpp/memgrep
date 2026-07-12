@@ -256,6 +256,16 @@ export class CursorAgentPool {
   }
 }
 
+/** Cap hung Cursor runs so one stalled turn cannot block the Telegram reply queue. */
+export const CURSOR_RUN_TIMEOUT_MS = 5 * 60_000;
+
+class CursorRunTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`Cursor run timed out after ${Math.round(ms / 1000)}s`);
+    this.name = 'CursorRunTimeoutError';
+  }
+}
+
 class CursorAgentHandle implements CursorAgentSession {
   private agent: SDKAgent | undefined;
   private creating: Promise<SDKAgent> | undefined;
@@ -276,15 +286,46 @@ class CursorAgentHandle implements CursorAgentSession {
 
   async send(text: string): Promise<string> {
     const agent = await this.ensureAgent();
+    let run: Awaited<ReturnType<SDKAgent['send']>> | undefined;
     try {
-      const run = await agent.send(text);
-      const result = await run.wait();
+      run = await agent.send(text);
+      const result = await Promise.race([run.wait(), rejectAfter(CURSOR_RUN_TIMEOUT_MS)]);
       if (result.status === 'error') {
-        return `Cursor run failed (${result.id}). Check the Cursor dashboard / local logs.`;
+        const detail = result.result?.trim();
+        console.error(
+          `memgrep telegram: Cursor run ${result.id} failed` +
+            (detail ? `: ${detail}` : '') +
+            (result.model?.id ? ` (model ${result.model.id})` : ''),
+        );
+        return (
+          `Cursor run failed (${result.id}).` +
+          (detail ? `\n${detail}` : '\nCheck the Cursor dashboard / local logs.') +
+          `\nTry /new, or /model composer-2.5 if the current model is flaky.`
+        );
+      }
+      if (result.status === 'cancelled') {
+        return `Cursor run cancelled (${result.id}).`;
       }
       if (result.result?.trim()) return result.result.trim();
       return '(Cursor finished with no text reply.)';
     } catch (error) {
+      if (error instanceof CursorRunTimeoutError) {
+        console.error(
+          `memgrep telegram: ${error.message}` +
+            (run ? ` (run ${run.id})` : '') +
+            ` — cancelling and resetting agent`,
+        );
+        try {
+          await run?.cancel();
+        } catch {
+          // Best-effort cancel; dispose below either way.
+        }
+        await this.disposeAgent();
+        return (
+          `${error.message}.` +
+          `\nThe stuck Cursor turn was cancelled. Send /new, then try again.`
+        );
+      }
       if (error instanceof CursorAgentError) {
         return `Cursor error: ${error.message}${error.isRetryable ? ' (retryable)' : ''}`;
       }
@@ -362,4 +403,10 @@ function formatModelLine(model: SDKModel, index: number, current: string): strin
   const mark = model.id === current ? ' *' : '';
   const name = model.displayName && model.displayName !== model.id ? ` — ${model.displayName}` : '';
   return `${index}. ${model.id}${name}${mark}`;
+}
+
+function rejectAfter(ms: number): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new CursorRunTimeoutError(ms)), ms);
+  });
 }

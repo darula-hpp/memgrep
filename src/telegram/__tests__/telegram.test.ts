@@ -23,6 +23,13 @@ import {
 import { helpText, parseTelegramCommand } from '../router.js';
 import { dispatchCommand } from '../bot.js';
 import type { CursorAgentSession } from '../cursor-agent.js';
+import { CURSOR_RUN_TIMEOUT_MS } from '../cursor-agent.js';
+import {
+  clampPollingStallThresholdMs,
+  GET_UPDATES_CLIENT_GUARD_MS,
+  isPollingStalled,
+  POLLING_STALL_THRESHOLD_MS,
+} from '../polling.js';
 import type { MemoryAccess } from '../types.js';
 import { splitForTelegram } from '../../memory/tools.js';
 
@@ -429,5 +436,26 @@ describe('helpText', () => {
     expect(text).toContain('/list');
     expect(text).toContain('/show');
     expect(text).toContain('/recall');
+  });
+});
+
+describe('polling stall helpers (OpenClaw-style)', () => {
+  it('clamps stall threshold like OpenClaw (30s–600s)', () => {
+    expect(clampPollingStallThresholdMs(1_000)).toBe(30_000);
+    expect(clampPollingStallThresholdMs(120_000)).toBe(120_000);
+    expect(clampPollingStallThresholdMs(999_999)).toBe(600_000);
+    expect(clampPollingStallThresholdMs(Number.NaN)).toBe(POLLING_STALL_THRESHOLD_MS);
+  });
+
+  it('detects stall after threshold without completed getUpdates', () => {
+    const started = 1_000_000;
+    expect(isPollingStalled(started, started + 119_000)).toBe(false);
+    expect(isPollingStalled(started, started + 120_000)).toBe(true);
+  });
+
+  it('uses a 45s client guard and 120s default stall threshold', () => {
+    expect(GET_UPDATES_CLIENT_GUARD_MS).toBe(45_000);
+    expect(POLLING_STALL_THRESHOLD_MS).toBe(120_000);
+    expect(CURSOR_RUN_TIMEOUT_MS).toBe(5 * 60_000);
   });
 });

@@ -1,10 +1,25 @@
 import { splitForTelegram } from '../memory/tools.js';
-import { TelegramApi } from './api.js';
+import { rebuildTelegramTransport, TelegramApi } from './api.js';
 import { isAllowedUser } from './allowlist.js';
 import { formatFetchError, isAbortError, isNetworkTimeoutError } from './errors.js';
+import {
+  clampPollingStallThresholdMs,
+  isPollingStalled,
+  POLLING_STALL_THRESHOLD_MS,
+  POLLING_WATCHDOG_INTERVAL_MS,
+} from './polling.js';
 import { helpText, parseTelegramCommand } from './router.js';
 import type { MemoryAccess, TelegramBotConfig, TelegramCommand, TelegramUpdate } from './types.js';
 import type { CursorAgentSession } from './cursor-agent.js';
+
+export type TelegramBotRunOptions = {
+  /** Stall threshold before soft-restarting the poll transport (default 120s). */
+  stallThresholdMs?: number;
+  /** Watchdog tick interval (default 10s). */
+  watchdogIntervalMs?: number;
+  /** Injectable clock for tests. */
+  now?: () => number;
+};
 
 export class TelegramBot {
   private offset = 0;
@@ -12,41 +27,66 @@ export class TelegramBot {
   private readonly api: TelegramApi;
   /** Serialize message handling so Cursor runs don't stack, without blocking long-poll. */
   private handling: Promise<void> = Promise.resolve();
+  private lastPollCompletedAt = 0;
+  private recoveringStall = false;
+  private readonly stallThresholdMs: number;
+  private readonly watchdogIntervalMs: number;
+  private readonly now: () => number;
 
-  constructor(private readonly config: TelegramBotConfig) {
+  constructor(
+    private readonly config: TelegramBotConfig,
+    options: TelegramBotRunOptions = {},
+  ) {
     this.api = new TelegramApi(config.botToken);
+    this.stallThresholdMs = clampPollingStallThresholdMs(
+      options.stallThresholdMs ?? POLLING_STALL_THRESHOLD_MS,
+    );
+    this.watchdogIntervalMs = Math.max(1_000, options.watchdogIntervalMs ?? POLLING_WATCHDOG_INTERVAL_MS);
+    this.now = options.now ?? Date.now;
   }
 
   async run(): Promise<void> {
     console.error(
       `memgrep telegram: polling (allowlist ${[...this.config.allowedUserIds].join(', ')})`,
     );
+    this.lastPollCompletedAt = this.now();
+    const watchdog = setInterval(() => {
+      void this.checkPollingStall();
+    }, this.watchdogIntervalMs);
+    // Allow the process to exit naturally in tests / clean shutdown.
+    watchdog.unref?.();
+
     let backoffMs = 2000;
-    while (!this.stopped) {
-      try {
-        const updates = await this.api.getUpdates(this.offset, 30);
-        backoffMs = 2000;
-        for (const update of updates) {
-          this.offset = update.update_id + 1;
-          // Keep long-polling alive while Cursor (or memory) work runs.
-          this.handling = this.handling
-            .then(() => this.handleUpdate(update))
-            .catch((error) => {
-              console.error('Telegram handler error:', formatFetchError(error));
-            });
+    try {
+      while (!this.stopped) {
+        try {
+          const updates = await this.api.getUpdates(this.offset);
+          this.lastPollCompletedAt = this.now();
+          backoffMs = 2000;
+          for (const update of updates) {
+            this.offset = update.update_id + 1;
+            // Keep long-polling alive while Cursor (or memory) work runs.
+            this.handling = this.handling
+              .then(() => this.handleUpdate(update))
+              .catch((error) => {
+                console.error('Telegram handler error:', formatFetchError(error));
+              });
+          }
+        } catch (error) {
+          if (this.stopped || isAbortError(error)) continue;
+          const detail = formatFetchError(error);
+          console.error('Telegram poll error:', detail);
+          if (isNetworkTimeoutError(error)) {
+            console.error(
+              'Hint: cannot reach api.telegram.org (ETIMEDOUT). Check VPN/firewall, or try: curl -4 -I https://api.telegram.org',
+            );
+          }
+          await sleep(backoffMs);
+          backoffMs = Math.min(backoffMs * 2, 30_000);
         }
-      } catch (error) {
-        if (this.stopped || isAbortError(error)) continue;
-        const detail = formatFetchError(error);
-        console.error('Telegram poll error:', detail);
-        if (isNetworkTimeoutError(error)) {
-          console.error(
-            'Hint: cannot reach api.telegram.org (ETIMEDOUT). Check VPN/firewall, or try: curl -4 -I https://api.telegram.org',
-          );
-        }
-        await sleep(backoffMs);
-        backoffMs = Math.min(backoffMs * 2, 30_000);
       }
+    } finally {
+      clearInterval(watchdog);
     }
     this.api.abortPoll();
     await this.handling;
@@ -55,6 +95,33 @@ export class TelegramBot {
   stop(): void {
     this.stopped = true;
     this.api.abortPoll();
+  }
+
+  /** @internal exposed for tests */
+  getLastPollCompletedAt(): number {
+    return this.lastPollCompletedAt;
+  }
+
+  private async checkPollingStall(): Promise<void> {
+    if (this.stopped || this.recoveringStall) return;
+    const now = this.now();
+    if (!isPollingStalled(this.lastPollCompletedAt, now, this.stallThresholdMs)) return;
+
+    this.recoveringStall = true;
+    const idleSec = ((now - this.lastPollCompletedAt) / 1000).toFixed(1);
+    console.error(
+      `memgrep telegram: Polling stall detected (no getUpdates for ${idleSec}s); forcing restart.`,
+    );
+    try {
+      this.api.abortPoll();
+      await rebuildTelegramTransport();
+      // Avoid immediate re-trigger while the next getUpdates is in flight.
+      this.lastPollCompletedAt = this.now();
+    } catch (error) {
+      console.error('memgrep telegram: poll transport rebuild failed:', formatFetchError(error));
+    } finally {
+      this.recoveringStall = false;
+    }
   }
 
   private async handleUpdate(update: TelegramUpdate): Promise<void> {

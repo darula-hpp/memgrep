@@ -1,11 +1,42 @@
 import dns from 'node:dns';
+import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici';
 import type { TelegramUpdate } from './types.js';
 import { isAbortError } from './errors.js';
+import { GET_UPDATES_CLIENT_GUARD_MS, GET_UPDATES_TIMEOUT_SEC } from './polling.js';
 
 const TG_API = 'https://api.telegram.org';
 
-// Node often tries IPv6 first; many networks time out on Telegram AAAA records.
+// Prefer IPv4; many networks time out on Telegram AAAA / Happy Eyeballs races.
 dns.setDefaultResultOrder('ipv4first');
+
+function createTgDispatcher(): Agent {
+  return new Agent({
+    connect: { family: 4, timeout: 30_000 },
+    keepAliveTimeout: 30_000,
+    keepAliveMaxTimeout: 60_000,
+  });
+}
+
+/** Shared IPv4 dispatcher — rebuilt on poll stalls / 409 conflicts. */
+let tgDispatcher = createTgDispatcher();
+
+/**
+ * Tear down keep-alive sockets and open a fresh dispatcher (OpenClaw-style
+ * transport rebuild after polling stalls or getUpdates 409s).
+ */
+export async function rebuildTelegramTransport(): Promise<void> {
+  const previous = tgDispatcher;
+  tgDispatcher = createTgDispatcher();
+  try {
+    await previous.close();
+  } catch {
+    // Ignore close races while in-flight requests drain.
+  }
+}
+
+async function tgFetch(url: URL | string, init: UndiciRequestInit = {}): Promise<Response> {
+  return undiciFetch(url, { ...init, dispatcher: tgDispatcher }) as unknown as Promise<Response>;
+}
 
 export type TelegramBotInfo = {
   id: number;
@@ -27,7 +58,7 @@ export class TelegramApi {
     return telegramMethodUrl(this.botToken, method);
   }
 
-  /** Abort an in-flight long poll (used on shutdown). */
+  /** Abort an in-flight long poll (used on shutdown / stall recovery). */
   abortPoll(): void {
     this.pollController?.abort();
     this.pollController = undefined;
@@ -46,23 +77,37 @@ export class TelegramApi {
     return body.result;
   }
 
-  async getUpdates(offset = 0, timeout = 30): Promise<TelegramUpdate[]> {
+  /**
+   * Long-poll getUpdates. Client aborts at GET_UPDATES_CLIENT_GUARD_MS so a
+   * dead socket cannot block forever; quiet aborts return [] (liveness tick).
+   */
+  async getUpdates(
+    offset = 0,
+    timeoutSec = GET_UPDATES_TIMEOUT_SEC,
+  ): Promise<TelegramUpdate[]> {
     const url = this.url('getUpdates');
-    url.searchParams.set('timeout', String(timeout));
+    url.searchParams.set('timeout', String(timeoutSec));
     url.searchParams.set('offset', String(offset));
 
     this.abortPoll();
     const controller = new AbortController();
     this.pollController = controller;
-    const timer = setTimeout(() => controller.abort(), (timeout + 10) * 1000);
+    const guardMs = Math.max(GET_UPDATES_CLIENT_GUARD_MS, (timeoutSec + 5) * 1000);
+    const timer = setTimeout(() => controller.abort(), guardMs);
 
     try {
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await tgFetch(url, { signal: controller.signal });
       const body = (await res.json()) as {
         ok: boolean;
         result?: TelegramUpdate[];
         description?: string;
+        error_code?: number;
       };
+      // Another poller has the token — rebuild sockets before the caller retries.
+      if (res.status === 409 || body.error_code === 409) {
+        await rebuildTelegramTransport();
+        throw new Error(body.description ?? 'getUpdates conflict (409) — another poller may be running');
+      }
       if (!res.ok || !body.ok || !body.result) {
         throw new Error(body.description ?? `getUpdates failed (HTTP ${res.status})`);
       }
@@ -109,11 +154,9 @@ function isTimeoutError(error: unknown): boolean {
     if (cause.name === 'AggregateError') return true;
   }
   if (error.message.includes('ETIMEDOUT') || error.message.includes('fetch failed')) {
-    // AggregateError often wraps ETIMEDOUT with an empty message on the cause.
     if (cause && typeof cause === 'object' && 'code' in cause) {
       return (cause as { code?: string }).code === 'ETIMEDOUT';
     }
-    // "fetch failed — AggregateError — ETIMEDOUT" style after formatting
     return error.message.includes('ETIMEDOUT');
   }
   return false;
@@ -146,7 +189,7 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await tgFetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
