@@ -8,6 +8,10 @@ import type DatabaseType from 'better-sqlite3';
 import type { HierarchicalNSW as HierarchicalNSWType } from 'hnswlib-node';
 import { chunkText } from '../chunker.js';
 import { DEFAULT_MODEL, Embedder } from '../embedder.js';
+import {
+  extractCursorAgentIdFromSource,
+  normalizeCursorAgentId,
+} from './cursor-agent-id.js';
 
 // Both better-sqlite3 and hnswlib-node are CommonJS native addons.
 const require = createRequire(import.meta.url);
@@ -30,6 +34,8 @@ export interface ChatInput {
   source?: string;
   /** Which agent tool the chat came from, e.g. "cursor", "claude", "kiro", "note". */
   tool?: string;
+  /** Cursor SDK agent id when known (for Telegram /open resume). */
+  cursorAgentId?: string;
   createdAt?: string;
   /** Last activity timestamp (file mtime); used to rank recency, not stored. */
   modifiedAt?: string;
@@ -42,6 +48,8 @@ export interface ChatSummary {
   tool: string;
   createdAt: string;
   chars: number;
+  /** Present when this chat can be resumed as a live Cursor agent. */
+  cursorAgentId?: string;
 }
 
 export interface ChatRecord extends ChatSummary {
@@ -60,6 +68,7 @@ interface ChatRow {
   project: string;
   source: string | null;
   tool: string | null;
+  cursor_agent_id: string | null;
   hash: string;
   content: string;
   created_at: string;
@@ -234,15 +243,19 @@ export class MemoryStore {
     const vectors = await this.embedBatched(pieces);
 
     const now = new Date().toISOString();
+    const cursorAgentId =
+      normalizeCursorAgentId(input.cursorAgentId) ??
+      extractCursorAgentIdFromSource(input.source);
     const { lastInsertRowid } = this.db
       .prepare(
-        'INSERT INTO chats (title, project, source, tool, hash, content, created_at, ingested_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO chats (title, project, source, tool, cursor_agent_id, hash, content, created_at, ingested_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       .run(
         input.title,
         input.project,
         input.source ?? null,
         input.tool ?? null,
+        cursorAgentId ?? null,
         hash,
         input.content,
         input.createdAt ?? now,
@@ -276,7 +289,21 @@ export class MemoryStore {
   getChat(id: number): ChatRecord | undefined {
     const row = this.db.prepare('SELECT * FROM chats WHERE id = ?').get(id) as ChatRow | undefined;
     if (!row) return undefined;
-    return { ...toSummary(row), content: row.content, source: row.source };
+    return {
+      ...toSummary(row),
+      content: row.content,
+      source: row.source,
+    };
+  }
+
+  /** Persist / refresh the Cursor SDK agent id for a remembered chat. */
+  setCursorAgentId(chatId: number, agentId: string): boolean {
+    const normalized = normalizeCursorAgentId(agentId);
+    if (!normalized) return false;
+    const { changes } = this.db
+      .prepare('UPDATE chats SET cursor_agent_id = ? WHERE id = ?')
+      .run(normalized, chatId);
+    return changes > 0;
   }
 
   /** How a candidate chat relates to what is stored, keyed by its source path. */
@@ -406,6 +433,8 @@ export class MemoryStore {
 }
 
 function toSummary(row: ChatRow & { chars?: number }): ChatSummary {
+  const cursorAgentId =
+    normalizeCursorAgentId(row.cursor_agent_id) ?? extractCursorAgentIdFromSource(row.source);
   return {
     id: row.id,
     title: row.title,
@@ -413,6 +442,7 @@ function toSummary(row: ChatRow & { chars?: number }): ChatSummary {
     tool: row.tool ?? 'unknown',
     createdAt: row.created_at,
     chars: row.chars ?? row.content.length,
+    ...(cursorAgentId ? { cursorAgentId } : {}),
   };
 }
 
@@ -423,6 +453,19 @@ function migrate(db: DatabaseType.Database): void {
     db.exec("ALTER TABLE chats ADD COLUMN tool TEXT");
     // Everything ingested before multi-tool support came from Cursor transcripts.
     db.exec("UPDATE chats SET tool = 'cursor' WHERE source IS NOT NULL");
+  }
+  if (!columns.some((c) => c.name === 'cursor_agent_id')) {
+    db.exec('ALTER TABLE chats ADD COLUMN cursor_agent_id TEXT');
+    const rows = db
+      .prepare(
+        "SELECT id, source FROM chats WHERE source IS NOT NULL AND (cursor_agent_id IS NULL OR cursor_agent_id = '')",
+      )
+      .all() as { id: number; source: string }[];
+    const update = db.prepare('UPDATE chats SET cursor_agent_id = ? WHERE id = ?');
+    for (const row of rows) {
+      const agentId = extractCursorAgentIdFromSource(row.source);
+      if (agentId) update.run(agentId, row.id);
+    }
   }
 }
 

@@ -1,4 +1,9 @@
 import type { MemoryStore } from './store.js';
+import {
+  extractCursorAgentIdFromSource,
+  guessCursorAgentIdFromSource,
+  normalizeCursorAgentId,
+} from './cursor-agent-id.js';
 
 /** Cap transcripts so a giant chat cannot blow an agent context window. */
 export const MAX_CHAT_CHARS = 80_000;
@@ -29,6 +34,23 @@ export type RememberInput = {
   title?: string;
   project?: string;
 };
+
+/** Structured chat payload for Telegram `/open` (resume or inject). */
+export type OpenTarget = {
+  id: number;
+  title: string;
+  project: string;
+  tool: string;
+  /** Confident SDK agent id when known. */
+  cursorAgentId?: string;
+  /** Best-effort id to try before falling back to inject. */
+  resumeCandidate?: string;
+  content: string;
+  chars: number;
+};
+
+/** Cap injected prior context so /open does not flood the next Cursor turn. */
+export const OPEN_INJECT_MAX_CHARS = 24_000;
 
 /**
  * Shared memory tool surface used by stdio MCP, HTTP MCP, and Telegram.
@@ -72,9 +94,36 @@ export class MemoryTools {
       return { text: 'Memory is empty.' };
     }
     const text = chats
-      .map((c) => `[chat ${c.id}] ${c.title} (${c.project}, ${c.createdAt.slice(0, 10)}, ${c.chars} chars)`)
+      .map((c) => {
+        const resume = c.cursorAgentId ? ' · resume' : '';
+        return `[chat ${c.id}] ${c.title} (${c.project}, ${c.createdAt.slice(0, 10)}, ${c.chars} chars${resume})`;
+      })
       .join('\n');
     return { text };
+  }
+
+  resolveOpen(input: GetChatInput): OpenTarget | null {
+    const chat = this.store.getChat(input.chatId);
+    if (!chat) return null;
+    const cursorAgentId =
+      normalizeCursorAgentId(chat.cursorAgentId) ?? extractCursorAgentIdFromSource(chat.source);
+    const resumeCandidate =
+      cursorAgentId ?? guessCursorAgentIdFromSource(chat.source) ?? undefined;
+    return {
+      id: chat.id,
+      title: chat.title,
+      project: chat.project,
+      tool: chat.tool,
+      ...(cursorAgentId ? { cursorAgentId } : {}),
+      ...(resumeCandidate ? { resumeCandidate } : {}),
+      content: chat.content,
+      chars: chat.chars,
+    };
+  }
+
+  /** Persist agent id after a successful /open resume (local store only). */
+  linkCursorAgent(chatId: number, agentId: string): boolean {
+    return this.store.setCursorAgentId(chatId, agentId);
   }
 
   async remember(input: RememberInput): Promise<ToolResult> {
@@ -122,4 +171,23 @@ export function splitForTelegram(text: string, max = TELEGRAM_MAX_MESSAGE_CHARS)
   }
   if (rest.length > 0) parts.push(rest);
   return parts;
+}
+
+/** Build the Cursor prompt used when /open cannot resume a live agent. */
+export function buildOpenInjectPrompt(target: OpenTarget): string {
+  let body = target.content;
+  if (body.length > OPEN_INJECT_MAX_CHARS) {
+    body =
+      body.slice(0, OPEN_INJECT_MAX_CHARS) +
+      `\n\n[... truncated: ${target.chars} chars total, showing first ${OPEN_INJECT_MAX_CHARS} ...]`;
+  }
+  return [
+    `[memgrep /open chat ${target.id}]`,
+    `Title: ${target.title}`,
+    `Project: ${target.project}`,
+    '',
+    'Prior conversation context follows. Continue from this work; do not re-summarize unless asked.',
+    '',
+    body,
+  ].join('\n');
 }

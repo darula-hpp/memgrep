@@ -37,6 +37,9 @@ export function cursorSource(projectsDir?: string): TranscriptSource {
             content: parsed.content,
             source: file,
             tool: 'cursor',
+            ...(chatDir.name.startsWith('agent-')
+              ? { cursorAgentId: chatDir.name }
+              : {}),
             createdAt: info.birthtime.toISOString(),
             modifiedAt: info.mtime.toISOString(),
           };

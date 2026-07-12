@@ -26,6 +26,14 @@ export function installTelegramProcessGuards(): void {
       console.error(`memgrep telegram: ignored uncaughtException: ${detail}`);
       return;
     }
+    // Disk-full transcript writes take down the process; KeepAlive restarts it.
+    // Surface a clear hint so operators don't chase model flakes.
+    if (/enospc|no space left/i.test(detail)) {
+      console.error(
+        `memgrep telegram: fatal ENOSPC (disk full) — free space under ~/.cursor or /System/Volumes/Data, then restart telegram: ${detail}`,
+      );
+      process.exit(1);
+    }
     console.error(`memgrep telegram: fatal uncaughtException: ${detail}`);
     process.exit(1);
   });

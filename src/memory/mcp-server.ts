@@ -38,6 +38,28 @@ export function createMemgrepMcpServer(
   );
 
   server.registerTool(
+    'resolve_open',
+    {
+      description:
+        'Resolve a remembered chat for opening/resuming. Returns JSON with title, project, ' +
+        'optional cursorAgentId, and transcript content. Used by Telegram /open.',
+      inputSchema: {
+        chatId: z.number().int().describe('Chat id from recall or list_chats'),
+      },
+    },
+    async ({ chatId }) => {
+      const target = tools.resolveOpen({ chatId });
+      if (!target) {
+        return toMcpContent({
+          text: JSON.stringify({ error: 'not_found', chatId }),
+          isError: true,
+        });
+      }
+      return toMcpContent({ text: JSON.stringify(target) });
+    },
+  );
+
+  server.registerTool(
     'list_chats',
     {
       description: 'List remembered chats, optionally filtered by project, newest first.',

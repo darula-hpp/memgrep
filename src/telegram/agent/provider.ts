@@ -21,6 +21,8 @@ export type ProviderRunResult = {
   status: 'finished' | 'error' | 'cancelled';
   result?: string;
   modelId?: string;
+  requestId?: string;
+  durationMs?: number;
 };
 
 /** One in-flight turn; pool applies timeouts and maps errors to user text. */

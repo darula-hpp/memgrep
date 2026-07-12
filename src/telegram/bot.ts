@@ -1,4 +1,4 @@
-import { splitForTelegram } from '../memory/tools.js';
+import { buildOpenInjectPrompt, splitForTelegram, type OpenTarget } from '../memory/tools.js';
 import { rebuildTelegramTransport, TelegramApi } from './api.js';
 import { isAllowedUser } from './allowlist.js';
 import { formatFetchError, isAbortError, isNetworkTimeoutError } from './errors.js';
@@ -198,6 +198,8 @@ export async function dispatchCommand(
       const result = await access.getChat(command.chatId);
       return result.text;
     }
+    case 'open':
+      return openRememberedChat(ctx, command.chatId);
     case 'recall': {
       const result = await access.recall(command.query);
       return result.text;
@@ -272,6 +274,64 @@ function requireSession(ctx: DispatchContext): AgentSession {
     throw new Error('Coding agent is not configured. Set CURSOR_API_KEY and run: memgrep telegram setup');
   }
   return ctx.agent.sessionFor(ctx.userId);
+}
+
+async function openRememberedChat(ctx: DispatchContext, chatId: number): Promise<string> {
+  const session = requireSession(ctx);
+  const target = await resolveOpenTarget(ctx.access, chatId);
+  if (!target) {
+    return `No chat with id ${chatId}. Try /list or /recall.`;
+  }
+
+  const candidate = target.cursorAgentId ?? target.resumeCandidate;
+  if (candidate) {
+    try {
+      const agentId = await session.switchToAgent(candidate);
+      await ctx.access.linkCursorAgent?.(chatId, agentId);
+      return [
+        `Opened chat ${target.id} — resumed Cursor agent.`,
+        `title: ${target.title}`,
+        `project: ${target.project}`,
+        `agent: ${agentId}`,
+        '',
+        'Send a message to continue that conversation.',
+      ].join('\n');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(
+        `memgrep telegram: /open ${chatId} resume failed (${candidate}): ${detail}; injecting context`,
+      );
+    }
+  }
+
+  const reply = await session.send(buildOpenInjectPrompt(target));
+  return [
+    `Opened chat ${target.id} into the current conversation (injected context; no live agent to resume).`,
+    `title: ${target.title}`,
+    `project: ${target.project}`,
+    '',
+    reply,
+  ].join('\n');
+}
+
+async function resolveOpenTarget(
+  access: MemoryAccess,
+  chatId: number,
+): Promise<OpenTarget | null> {
+  if (access.resolveOpen) {
+    return access.resolveOpen(chatId);
+  }
+  // MCP-only backends without resolveOpen: fall back to get_chat text as inject body.
+  const result = await access.getChat(chatId);
+  if (result.isError) return null;
+  return {
+    id: chatId,
+    title: `chat ${chatId}`,
+    project: 'unknown',
+    tool: 'unknown',
+    content: result.text,
+    chars: result.text.length,
+  };
 }
 
 async function runAgent(ctx: DispatchContext, prompt: string): Promise<string> {

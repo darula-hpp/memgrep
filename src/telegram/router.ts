@@ -24,6 +24,7 @@ Memory shortcuts:
   /recall <query>    semantic search
   /list [project]    list remembered chats
   /show <id>         full transcript
+  /open <id>         resume that chat (or inject into current)
   /help              this message
 `;
 
@@ -50,6 +51,7 @@ export const TELEGRAM_BOT_COMMANDS: readonly TelegramBotCommand[] = [
   { command: 'recall', description: 'Semantic search memory' },
   { command: 'list', description: 'List remembered chats' },
   { command: 'show', description: 'Show a chat transcript by id' },
+  { command: 'open', description: 'Resume or continue a remembered chat' },
 ];
 
 export function helpText(): string {
@@ -108,6 +110,11 @@ export function parseTelegramCommand(text: string | undefined): TelegramCommand 
   const showMatch = raw.match(/^\/show(?:@\w+)?\s+(\d+)\s*$/i);
   if (showMatch) {
     return { kind: 'show', chatId: Number(showMatch[1]) };
+  }
+
+  const openMatch = raw.match(/^\/open(?:@\w+)?\s+(\d+)\s*$/i);
+  if (openMatch) {
+    return { kind: 'open', chatId: Number(openMatch[1]) };
   }
 
   const recallMatch = raw.match(/^\/recall(?:@\w+)?\s+(.+)$/i);

@@ -1,5 +1,5 @@
 import { MemoryStore } from '../memory/store.js';
-import { MemoryTools, type ToolResult } from '../memory/tools.js';
+import { MemoryTools, type OpenTarget, type ToolResult } from '../memory/tools.js';
 import type { MemoryAccess } from './types.js';
 
 export class LocalMemoryAccess implements MemoryAccess {
@@ -23,6 +23,14 @@ export class LocalMemoryAccess implements MemoryAccess {
 
   listChats(project?: string): Promise<ToolResult> {
     return this.tools.listChats({ project });
+  }
+
+  async resolveOpen(chatId: number): Promise<OpenTarget | null> {
+    return this.tools.resolveOpen({ chatId });
+  }
+
+  linkCursorAgent(chatId: number, agentId: string): void {
+    this.tools.linkCursorAgent(chatId, agentId);
   }
 
   close(): void {

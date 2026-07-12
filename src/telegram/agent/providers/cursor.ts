@@ -47,15 +47,38 @@ function wrapRun(run: Awaited<ReturnType<SDKAgent['send']>>): ProviderRun {
     id: run.id,
     wait: async () => {
       const result = await run.wait();
+      let detail = result.result;
+      // Composer sometimes returns status=error with an empty result string.
+      if (result.status === 'error' && !detail?.trim() && run.supports('conversation')) {
+        try {
+          const turns = await run.conversation();
+          const last = turns.at(-1);
+          if (last) {
+            detail = summarizeConversationTurn(last);
+          }
+        } catch {
+          // Best-effort diagnostics only.
+        }
+      }
       return {
         id: result.id,
         status: result.status,
-        result: result.result,
+        result: detail,
         modelId: result.model?.id,
+        requestId: result.requestId,
+        durationMs: result.durationMs,
       };
     },
     cancel: () => run.cancel(),
   };
+}
+
+function summarizeConversationTurn(turn: unknown): string | undefined {
+  if (!turn || typeof turn !== 'object') return undefined;
+  const text = JSON.stringify(turn);
+  if (text.length <= 2) return undefined;
+  const clipped = text.replace(/\s+/g, ' ').slice(0, 500);
+  return clipped || undefined;
 }
 
 function wrapSession(agent: SDKAgent): ProviderSession {

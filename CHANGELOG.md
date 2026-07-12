@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Telegram Cursor run timeout raised from 5 minutes to **10 minutes**.
+- On run **timeout** or **empty/opaque model errors**, automatically start a fresh Cursor conversation (avoids resume→fail loops).
+
+### Added
+
+- **`/open <id>`** — after `/list` or `/recall`, resume a remembered Cursor chat when a live agent id is known; otherwise inject the transcript into the current conversation.
+- Persist `cursor_agent_id` on ingested Cursor transcripts (and backfill from `agent-…` transcript paths) so `/open` can resume.
+
 ## [1.2.0] - 2026-07-12
 
 ### Added

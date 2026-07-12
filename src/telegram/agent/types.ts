@@ -17,6 +17,11 @@ export type AgentStatus = {
 export interface AgentSession {
   send(text: string): Promise<string>;
   reset(): Promise<void>;
+  /**
+   * Point this Telegram session at an existing Cursor agent id.
+   * Verifies resume immediately; throws if the agent cannot be opened.
+   */
+  switchToAgent(agentId: string): Promise<string>;
   setCwd(cwd: string, name?: string): Promise<string>;
   setModel(model: string): Promise<string>;
   listModels(): Promise<string>;

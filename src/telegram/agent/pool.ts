@@ -24,7 +24,7 @@ import {
 } from './mode.js';
 
 /** Cap hung agent runs so one stalled turn cannot block the Telegram reply queue. */
-export const AGENT_RUN_TIMEOUT_MS = 5 * 60_000;
+export const AGENT_RUN_TIMEOUT_MS = 10 * 60_000;
 
 /** @deprecated Use AGENT_RUN_TIMEOUT_MS */
 export const CURSOR_RUN_TIMEOUT_MS = AGENT_RUN_TIMEOUT_MS;
@@ -306,17 +306,27 @@ class AgentSessionHandle implements AgentSession {
       run = await session.send(text, { mode: this.pool.getMode() });
       const result = await Promise.race([run.wait(), rejectAfter(AGENT_RUN_TIMEOUT_MS)]);
       if (result.status === 'error') {
-        const detail = result.result?.trim();
+        const rawDetail = result.result?.trim();
+        const detail = usefulRunErrorDetail(rawDetail);
         console.error(
           `memgrep telegram: ${this.pool.provider.id} run ${result.id} failed` +
-            (detail ? `: ${detail}` : '') +
-            (result.modelId ? ` (model ${result.modelId})` : ''),
+            (rawDetail ? `: ${rawDetail.slice(0, 500)}` : ' (empty error detail)') +
+            (result.modelId ? ` (model ${result.modelId})` : '') +
+            (result.requestId ? ` requestId=${result.requestId}` : '') +
+            (result.durationMs !== undefined ? ` ${result.durationMs}ms` : ''),
         );
-        return (
-          `Agent run failed (${result.id}).` +
-          (detail ? `\n${detail}` : '\nCheck provider logs / dashboard.') +
-          `\nTry again, or /new / /model composer-2.5 if the model is flaky.`
-        );
+        // Empty / opaque failures often mean a wedged local agent — drop it so
+        // the next message starts fresh instead of resume→fail loops.
+        if (!detail) {
+          await this.reset();
+          return (
+            `Agent run failed (${result.id}).` +
+            `\nModel ${result.modelId ?? 'unknown'} returned an error with no usable message.` +
+            `\nStarted a fresh Cursor conversation automatically.` +
+            `\nSend your message again, or try /model auto if this keeps happening.`
+          );
+        }
+        return `Agent run failed (${result.id}).\n${detail}\nTry again, or /new / /model auto.`;
       }
       if (result.status === 'cancelled') {
         return `Agent run cancelled (${result.id}).`;
@@ -328,17 +338,18 @@ class AgentSessionHandle implements AgentSession {
         console.error(
           `memgrep telegram: ${error.message}` +
             (run ? ` (run ${run.id})` : '') +
-            ` — cancelling run (agent id kept for resume)`,
+            ` — cancelling run and starting a fresh agent`,
         );
         try {
           await run?.cancel();
         } catch {
           // Best-effort cancel.
         }
-        await this.disposeMemory();
+        await this.reset();
         return (
           `${error.message}.` +
-          `\nThe stuck turn was cancelled; the conversation was kept. Send another message to resume, or /new to start fresh.`
+          `\nThe stuck turn was cancelled and a fresh Cursor conversation was started.` +
+          `\nSend your message again.`
         );
       }
       const retryable = this.pool.provider.isRetryableError?.(error) === true;
@@ -357,6 +368,33 @@ class AgentSessionHandle implements AgentSession {
     const cwd = this.pool.getCwd();
     await this.disposeMemory();
     clearPersistedAgentId(this.userId, cwd, this.pool.getHome(), this.pool.getProfile());
+  }
+
+  async switchToAgent(agentId: string): Promise<string> {
+    const id = agentId.trim();
+    if (!id) throw new Error('Agent id is required.');
+    const cwd = this.pool.getCwd();
+    const home = this.pool.getHome();
+    const profile = this.pool.getProfile();
+    const previous = getPersistedAgentId(this.userId, cwd, home, profile);
+
+    await this.disposeMemory();
+    setPersistedAgentId(this.userId, cwd, id, home, profile);
+    try {
+      const session = await this.ensureSession();
+      if (session.id !== id) {
+        // Provider may normalize; keep whatever resume returned.
+        setPersistedAgentId(this.userId, cwd, session.id, home, profile);
+      }
+      return session.id;
+    } catch (error) {
+      if (previous) {
+        setPersistedAgentId(this.userId, cwd, previous, home, profile);
+      } else {
+        clearPersistedAgentId(this.userId, cwd, home, profile);
+      }
+      throw error;
+    }
   }
 
   async setCwd(cwd: string, name?: string): Promise<string> {
@@ -470,6 +508,21 @@ function formatModelLine(model: ProviderModel, index: number, current: string): 
   const name =
     model.displayName && model.displayName !== model.id ? ` — ${model.displayName}` : '';
   return `${index}. ${model.id}${name}${mark}`;
+}
+
+/**
+ * Cursor sometimes returns status=error with an empty result, or with a raw
+ * conversation-turn JSON dump that isn't a user-facing error. Treat those as
+ * opaque so we can auto-/new.
+ */
+function usefulRunErrorDetail(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('{') && /agentConversationTurn|"type"\s*:\s*"thinkingMessage"/.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
 }
 
 function rejectAfter(ms: number): Promise<never> {

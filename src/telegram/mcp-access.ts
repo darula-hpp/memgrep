@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { ToolResult } from '../memory/tools.js';
+import type { OpenTarget, ToolResult } from '../memory/tools.js';
 import type { MemoryAccess } from './types.js';
 
 function textFromToolResult(result: unknown): ToolResult {
@@ -51,6 +51,18 @@ export class McpMemoryAccess implements MemoryAccess {
 
   listChats(project?: string): Promise<ToolResult> {
     return this.call('list_chats', { ...(project ? { project } : {}) });
+  }
+
+  async resolveOpen(chatId: number): Promise<OpenTarget | null> {
+    const result = await this.call('resolve_open', { chatId });
+    if (result.isError) return null;
+    try {
+      const parsed = JSON.parse(result.text) as OpenTarget & { error?: string };
+      if (parsed.error || typeof parsed.id !== 'number') return null;
+      return parsed;
+    } catch {
+      return null;
+    }
   }
 
   async close(): Promise<void> {

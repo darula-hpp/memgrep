@@ -1,4 +1,4 @@
-import type { ToolResult } from '../memory/tools.js';
+import type { OpenTarget, ToolResult } from '../memory/tools.js';
 import type { AgentPool, AgentSession } from './agent/types.js';
 import type { TelegramWorkspace } from './config.js';
 
@@ -7,6 +7,10 @@ export interface MemoryAccess {
   recall(query: string, k?: number): Promise<ToolResult>;
   getChat(chatId: number): Promise<ToolResult>;
   listChats(project?: string): Promise<ToolResult>;
+  /** Structured chat for /open. Optional on older MCP backends. */
+  resolveOpen?(chatId: number): Promise<OpenTarget | null>;
+  /** Persist agent id after successful resume (local only). */
+  linkCursorAgent?(chatId: number, agentId: string): void | Promise<void>;
   close?(): Promise<void> | void;
 }
 
@@ -22,6 +26,7 @@ export type TelegramCommand =
   | { kind: 'help' }
   | { kind: 'list'; project?: string }
   | { kind: 'show'; chatId: number }
+  | { kind: 'open'; chatId: number }
   | { kind: 'recall'; query: string }
   | { kind: 'agent'; text: string }
   | { kind: 'new' }

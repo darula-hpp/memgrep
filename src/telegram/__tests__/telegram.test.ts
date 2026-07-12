@@ -214,6 +214,7 @@ describe('parseTelegramCommand', () => {
     expect(parseTelegramCommand('/list')).toEqual({ kind: 'list', project: undefined });
     expect(parseTelegramCommand('/list api')).toEqual({ kind: 'list', project: 'api' });
     expect(parseTelegramCommand('/show 12')).toEqual({ kind: 'show', chatId: 12 });
+    expect(parseTelegramCommand('/open 12')).toEqual({ kind: 'open', chatId: 12 });
     expect(parseTelegramCommand('/recall auth race')).toEqual({
       kind: 'recall',
       query: 'auth race',
@@ -295,6 +296,10 @@ describe('dispatchCommand', () => {
       },
       async reset() {
         sent.push('RESET');
+      },
+      async switchToAgent(agentId) {
+        sent.push(`SWITCH:${agentId}`);
+        return agentId;
       },
       async setCwd(next, name) {
         cwd = next;
@@ -442,6 +447,187 @@ describe('dispatchCommand', () => {
     ).toContain('Mode set to plan');
     expect(sent).toContain('MODE:plan');
   });
+
+  it('opens a chat by resuming when cursorAgentId is known', async () => {
+    const switched: string[] = [];
+    const linked: Array<{ chatId: number; agentId: string }> = [];
+    const openAccess: MemoryAccess = {
+      ...access,
+      async resolveOpen(chatId) {
+        if (chatId !== 9) return null;
+        return {
+          id: 9,
+          title: 'auth race',
+          project: 'demo',
+          tool: 'cursor',
+          cursorAgentId: 'agent-resume-me',
+          resumeCandidate: 'agent-resume-me',
+          content: 'User: fix auth\n\nAssistant: done',
+          chars: 30,
+        };
+      },
+      linkCursorAgent(chatId, agentId) {
+        linked.push({ chatId, agentId });
+      },
+    };
+    const session: AgentSession = {
+      async send() {
+        return 'should-not-inject';
+      },
+      async reset() {},
+      async switchToAgent(agentId) {
+        switched.push(agentId);
+        return agentId;
+      },
+      async setCwd() {
+        return '/tmp';
+      },
+      async setModel() {
+        return 'ok';
+      },
+      async listModels() {
+        return '';
+      },
+      async setMode() {
+        return 'ok';
+      },
+      listModes() {
+        return '';
+      },
+      listWorkspaces() {
+        return '';
+      },
+      async switchWorkspace() {
+        return 'ok';
+      },
+      async addWorkspace() {
+        return 'ok';
+      },
+      async removeWorkspace() {
+        return 'ok';
+      },
+      status() {
+        return {
+          agentId: 'agent-resume-me',
+          cwd: '/tmp',
+          model: 'composer-2.5',
+          mode: 'agent',
+          workspaces: [],
+        };
+      },
+      async close() {},
+    };
+    const agent = {
+      sessionFor: () => session,
+      status: () => ({
+        cwd: '/tmp',
+        model: 'composer-2.5',
+        mode: 'agent' as const,
+        workspaces: [],
+      }),
+      async close() {},
+      async disposeAllMemory() {},
+    };
+
+    const reply = await dispatchCommand({
+      access: openAccess,
+      agent,
+      userId: 1,
+      command: { kind: 'open', chatId: 9 },
+      text: '/open 9',
+    });
+    expect(reply).toContain('resumed Cursor agent');
+    expect(reply).toContain('agent-resume-me');
+    expect(switched).toEqual(['agent-resume-me']);
+    expect(linked).toEqual([{ chatId: 9, agentId: 'agent-resume-me' }]);
+  });
+
+  it('opens a chat by injecting when resume is unavailable', async () => {
+    const sent: string[] = [];
+    const openAccess: MemoryAccess = {
+      ...access,
+      async resolveOpen(chatId) {
+        if (chatId !== 3) return null;
+        return {
+          id: 3,
+          title: 'old note',
+          project: 'notes',
+          tool: 'note',
+          content: 'Remember to rotate keys',
+          chars: 24,
+        };
+      },
+    };
+    const session: AgentSession = {
+      async send(text) {
+        sent.push(text);
+        return 'injected-ok';
+      },
+      async reset() {},
+      async switchToAgent() {
+        throw new Error('should not switch');
+      },
+      async setCwd() {
+        return '/tmp';
+      },
+      async setModel() {
+        return 'ok';
+      },
+      async listModels() {
+        return '';
+      },
+      async setMode() {
+        return 'ok';
+      },
+      listModes() {
+        return '';
+      },
+      listWorkspaces() {
+        return '';
+      },
+      async switchWorkspace() {
+        return 'ok';
+      },
+      async addWorkspace() {
+        return 'ok';
+      },
+      async removeWorkspace() {
+        return 'ok';
+      },
+      status() {
+        return {
+          cwd: '/tmp',
+          model: 'composer-2.5',
+          mode: 'agent',
+          workspaces: [],
+        };
+      },
+      async close() {},
+    };
+    const agent = {
+      sessionFor: () => session,
+      status: () => ({
+        cwd: '/tmp',
+        model: 'composer-2.5',
+        mode: 'agent' as const,
+        workspaces: [],
+      }),
+      async close() {},
+      async disposeAllMemory() {},
+    };
+
+    const reply = await dispatchCommand({
+      access: openAccess,
+      agent,
+      userId: 1,
+      command: { kind: 'open', chatId: 3 },
+      text: '/open 3',
+    });
+    expect(reply).toContain('injected context');
+    expect(reply).toContain('injected-ok');
+    expect(sent[0]).toContain('[memgrep /open chat 3]');
+    expect(sent[0]).toContain('Remember to rotate keys');
+  });
 });
 
 describe('splitForTelegram', () => {
@@ -468,6 +654,7 @@ describe('helpText', () => {
     expect(text).toContain('/mode');
     expect(text).toContain('/list');
     expect(text).toContain('/show');
+    expect(text).toContain('/open');
     expect(text).toContain('/recall');
   });
 });
@@ -488,6 +675,7 @@ describe('TELEGRAM_BOT_COMMANDS', () => {
         'recall',
         'list',
         'show',
+        'open',
       ]),
     );
     for (const cmd of TELEGRAM_BOT_COMMANDS) {
@@ -515,6 +703,6 @@ describe('polling stall helpers (OpenClaw-style)', () => {
   it('uses a 45s client guard and 120s default stall threshold', () => {
     expect(GET_UPDATES_CLIENT_GUARD_MS).toBe(45_000);
     expect(POLLING_STALL_THRESHOLD_MS).toBe(120_000);
-    expect(CURSOR_RUN_TIMEOUT_MS).toBe(5 * 60_000);
+    expect(CURSOR_RUN_TIMEOUT_MS).toBe(10 * 60_000);
   });
 });
