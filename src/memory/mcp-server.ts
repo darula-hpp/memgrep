@@ -13,9 +13,9 @@ export function createMemgrepMcpServer(
     'recall',
     {
       description:
-        'Semantic search across remembered agent chats from ALL projects on this machine. ' +
+        'Hybrid search (semantic vectors + keyword/BM25) across remembered agent chats from ALL projects on this machine. ' +
         'Use when past work, decisions, or solutions might be relevant (e.g. "how did we fix X?", ' +
-        '"have we set up Y before?"). Returns matching chats with ids; fetch full transcripts with get_chat.',
+        '"have we set up Y before?", ticket ids, error codes). Returns matching chats with ids; fetch full transcripts with get_chat.',
       inputSchema: {
         query: z.string().describe('Natural-language description of what to find'),
         k: z.number().int().min(1).max(20).optional().describe('Max results (default 5)'),

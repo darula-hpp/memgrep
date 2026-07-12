@@ -180,6 +180,25 @@ describe('MemoryStore', () => {
     expect(hits[0].project).toBe('api');
   });
 
+  it('hybrid search finds exact ids that vector-only may miss', async () => {
+    const id = (await store.addChat({
+      title: 'Acquirer timeout for merchant 7712',
+      project: 'payments',
+      content:
+        'User: checkout fails for merchant 7712\n\nAssistant: The acquirer returned ECONNREFUSED on the settlement endpoint for merchant 7712 only.',
+    }))!;
+
+    const keywordHits = await store.search('7712', 3, { mode: 'keyword' });
+    expect(keywordHits[0].id).toBe(id);
+    expect(keywordHits[0].snippet).toMatch(/7712/);
+
+    const hybridHits = await store.search('merchant 7712 ECONNREFUSED', 3);
+    expect(hybridHits[0].id).toBe(id);
+
+    const codeHits = await store.search('ECONNREFUSED', 3, { mode: 'keyword' });
+    expect(codeHits[0].id).toBe(id);
+  });
+
   it('skips unchanged content on re-add (idempotent ingest)', async () => {
     const input = {
       title: 'Fix auth race condition',
@@ -188,7 +207,8 @@ describe('MemoryStore', () => {
         'User: the login randomly fails\n\nAssistant: The token refresh has a race condition; we fixed it with a mutex around refresh.',
     };
     expect(await store.addChat(input)).toBeNull();
-    expect(store.listChats()).toHaveLength(2);
+    // auth + CI + merchant incident from the hybrid test
+    expect(store.listChats()).toHaveLength(3);
   });
 
   it('deletes chats and excludes them from search', async () => {
@@ -221,8 +241,11 @@ describe('MemoryStore', () => {
     await store.persist();
     store.close();
     store = await MemoryStore.open(dir);
-    expect(store.listChats()).toHaveLength(2);
+    expect(store.listChats()).toHaveLength(3);
     const hits = await store.search('continuous integration github', 1);
     expect(hits[0].title).toBe('Set up CI pipeline');
+    // FTS backfill on reopen still finds exact ids
+    const idHits = await store.search('7712', 1, { mode: 'keyword' });
+    expect(idHits[0].title).toContain('7712');
   }, 120_000);
 });

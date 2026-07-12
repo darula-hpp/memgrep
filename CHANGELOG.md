@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Hybrid recall** — FTS5/BM25 keyword search fused with HNSW vectors via reciprocal rank fusion (RRF). Exact ids and error strings no longer depend on semantic similarity alone. Strategy backends: `vector`, `keyword`, `hybrid` (default). CLI: `memgrep recall "<query>" --mode keyword`.
+
 ## [1.3.0] - 2026-07-12
 
 ### Added
