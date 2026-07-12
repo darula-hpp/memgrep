@@ -238,6 +238,7 @@ export async function dispatchCommand(
       return [
         `cwd: ${s.cwd || pool.cwd}`,
         `model: ${s.model || pool.model}`,
+        `mode: ${s.mode || pool.mode}`,
         s.agentId ? `agent: ${s.agentId}` : 'agent: (not started yet — send a message)',
         '',
         session.listWorkspaces(),
@@ -248,6 +249,15 @@ export async function dispatchCommand(
       try {
         if (!command.model) return await session.listModels();
         return await session.setModel(command.model);
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    }
+    case 'mode': {
+      const session = requireSession(ctx);
+      try {
+        if (!command.mode) return session.listModes();
+        return await session.setMode(command.mode);
       } catch (error) {
         return error instanceof Error ? error.message : String(error);
       }

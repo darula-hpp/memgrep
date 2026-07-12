@@ -106,6 +106,7 @@ async function startBots(opts: StartOpts): Promise<void> {
       apiKey: fresh.cursorApiKey!,
       cwd: fresh.cwd,
       model: fresh.model,
+      mode: fresh.agentMode === 'plan' || fresh.agentMode === 'agent' ? fresh.agentMode : undefined,
       mcpUrl,
       mcpToken: fresh.mcpToken,
       workspaces: fresh.workspaces,
@@ -115,7 +116,7 @@ async function startBots(opts: StartOpts): Promise<void> {
 
     const label = fresh.botUsername ? `@${fresh.botUsername}` : fresh.profile;
     console.error(
-      `memgrep telegram [${fresh.profile}] ${label} cwd=${fresh.cwd} model=${fresh.model}`,
+      `memgrep telegram [${fresh.profile}] ${label} cwd=${fresh.cwd} model=${fresh.model} mode=${fresh.agentMode}`,
     );
 
     bots.push(

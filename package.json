@@ -1,6 +1,6 @@
 {
   "name": "memgrep",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Telegram → Cursor agent + searchable local memory for playbooks you reuse (and schedule with memgrep jobs).",
   "keywords": [
     "semantic-search",

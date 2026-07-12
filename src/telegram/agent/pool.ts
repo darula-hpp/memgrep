@@ -16,6 +16,12 @@ import {
 import type { CodingAgentProvider, ProviderContext, ProviderModel, ProviderSession } from './provider.js';
 import { createCursorProvider } from './providers/cursor.js';
 import type { AgentPool, AgentSession, AgentStatus } from './types.js';
+import {
+  DEFAULT_AGENT_RUN_MODE,
+  formatModesText,
+  parseAgentRunMode,
+  type AgentRunMode,
+} from './mode.js';
 
 /** Cap hung agent runs so one stalled turn cannot block the Telegram reply queue. */
 export const AGENT_RUN_TIMEOUT_MS = 5 * 60_000;
@@ -27,6 +33,8 @@ export type AgentPoolOptions = {
   apiKey: string;
   cwd: string;
   model: string;
+  /** Conversation mode for sends (default: agent). */
+  mode?: AgentRunMode;
   mcpUrl: string;
   mcpToken?: string;
   workspaces?: TelegramWorkspace[];
@@ -48,12 +56,14 @@ class AgentPoolImpl implements AgentPool {
   private readonly sessions = new Map<number, AgentSessionHandle>();
   private cwd: string;
   private model: string;
+  private mode: AgentRunMode;
   private workspaces: TelegramWorkspace[];
   readonly provider: CodingAgentProvider;
 
   constructor(private readonly options: AgentPoolOptions) {
     this.cwd = options.cwd;
     this.model = options.model;
+    this.mode = options.mode ?? DEFAULT_AGENT_RUN_MODE;
     this.workspaces = normalizeWorkspaces(options.workspaces, options.cwd);
     this.provider = options.provider ?? createCursorProvider();
   }
@@ -68,7 +78,12 @@ class AgentPoolImpl implements AgentPool {
   }
 
   status(): AgentStatus {
-    return { cwd: this.cwd, model: this.model, workspaces: this.workspaces };
+    return {
+      cwd: this.cwd,
+      model: this.model,
+      mode: this.mode,
+      workspaces: this.workspaces,
+    };
   }
 
   async close(): Promise<void> {
@@ -112,6 +127,23 @@ class AgentPoolImpl implements AgentPool {
     }
     await this.disposeAllMemory();
     return resolved;
+  }
+
+  /**
+   * Switch conversation mode. Per-send on the provider — no need to dispose
+   * the in-memory agent (unlike model/cwd).
+   */
+  setMode(raw: string): AgentRunMode {
+    const next = parseAgentRunMode(raw);
+    this.mode = next;
+    if (this.options.persistConfig !== false) {
+      this.persist({ agentMode: next });
+    }
+    return next;
+  }
+
+  listModesText(): string {
+    return formatModesText(this.mode);
   }
 
   async listModelsText(): Promise<string> {
@@ -218,6 +250,10 @@ class AgentPoolImpl implements AgentPool {
     return this.model;
   }
 
+  getMode(): AgentRunMode {
+    return this.mode;
+  }
+
   getWorkspaces(): TelegramWorkspace[] {
     return this.workspaces;
   }
@@ -258,6 +294,7 @@ class AgentSessionHandle implements AgentSession {
       agentId: persisted,
       cwd,
       model: this.pool.getModel(),
+      mode: this.pool.getMode(),
       workspaces: this.pool.getWorkspaces(),
     };
   }
@@ -266,7 +303,7 @@ class AgentSessionHandle implements AgentSession {
     const session = await this.ensureSession();
     let run: Awaited<ReturnType<ProviderSession['send']>> | undefined;
     try {
-      run = await session.send(text);
+      run = await session.send(text, { mode: this.pool.getMode() });
       const result = await Promise.race([run.wait(), rejectAfter(AGENT_RUN_TIMEOUT_MS)]);
       if (result.status === 'error') {
         const detail = result.result?.trim();
@@ -306,7 +343,13 @@ class AgentSessionHandle implements AgentSession {
       }
       const retryable = this.pool.provider.isRetryableError?.(error) === true;
       const message = error instanceof Error ? error.message : String(error);
-      return `Agent error: ${message}${retryable ? ' (retryable)' : ''}`;
+      const busy = /already has active run/i.test(message);
+      return (
+        `Agent error: ${message}${retryable ? ' (retryable)' : ''}` +
+        (busy
+          ? `\nA previous turn is still stuck on this agent. Try again, or /new to start fresh.`
+          : '')
+      );
     }
   }
 
@@ -327,6 +370,15 @@ class AgentSessionHandle implements AgentSession {
 
   async listModels(): Promise<string> {
     return this.pool.listModelsText();
+  }
+
+  async setMode(mode: string): Promise<string> {
+    const next = this.pool.setMode(mode);
+    return `Mode set to ${next}. Next messages use this Cursor mode.`;
+  }
+
+  listModes(): string {
+    return this.pool.listModesText();
   }
 
   listWorkspaces(): string {

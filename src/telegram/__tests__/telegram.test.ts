@@ -247,6 +247,8 @@ describe('parseTelegramCommand', () => {
       model: 'composer-2.5',
     });
     expect(parseTelegramCommand('/model auto')).toEqual({ kind: 'model', model: 'auto' });
+    expect(parseTelegramCommand('/mode')).toEqual({ kind: 'mode', mode: undefined });
+    expect(parseTelegramCommand('/mode plan')).toEqual({ kind: 'mode', mode: 'plan' });
   });
 
   it('treats free text as Cursor agent', () => {
@@ -306,6 +308,13 @@ describe('dispatchCommand', () => {
       async listModels() {
         return 'Current: composer-2.5\n1. composer-2.5 *\n2. auto';
       },
+      async setMode(mode) {
+        sent.push(`MODE:${mode}`);
+        return `Mode set to ${mode}. Next messages use this Cursor mode.`;
+      },
+      listModes() {
+        return 'Current mode: agent\n1. agent *\n2. plan';
+      },
       listWorkspaces() {
         return `Workspaces:\n1. ${workspaces[0]?.name ?? 'none'}`;
       },
@@ -322,14 +331,14 @@ describe('dispatchCommand', () => {
         return `Removed workspace ${name}.`;
       },
       status() {
-        return { agentId: 'agent-test', cwd, model: 'composer-2.5', workspaces };
+        return { agentId: 'agent-test', cwd, model: 'composer-2.5', mode: 'agent', workspaces };
       },
       async close() {},
     };
 
     const agent = {
       sessionFor: () => session,
-      status: () => ({ cwd, model: 'composer-2.5', workspaces }),
+      status: () => ({ cwd, model: 'composer-2.5', mode: 'agent' as const, workspaces }),
       async close() {},
       async disposeAllMemory() {},
     };
@@ -411,6 +420,27 @@ describe('dispatchCommand', () => {
       }),
     ).toContain('Model set to auto');
     expect(sent).toContain('MODEL:auto');
+
+    expect(
+      await dispatchCommand({
+        access,
+        agent,
+        userId: 1,
+        command: { kind: 'mode' },
+        text: '/mode',
+      }),
+    ).toContain('agent');
+
+    expect(
+      await dispatchCommand({
+        access,
+        agent,
+        userId: 1,
+        command: { kind: 'mode', mode: 'plan' },
+        text: '/mode plan',
+      }),
+    ).toContain('Mode set to plan');
+    expect(sent).toContain('MODE:plan');
   });
 });
 
@@ -435,6 +465,7 @@ describe('helpText', () => {
     expect(text).toContain('/ask');
     expect(text).toContain('/new');
     expect(text).toContain('/model');
+    expect(text).toContain('/mode');
     expect(text).toContain('/list');
     expect(text).toContain('/show');
     expect(text).toContain('/recall');
@@ -446,7 +477,18 @@ describe('TELEGRAM_BOT_COMMANDS', () => {
     const { TELEGRAM_BOT_COMMANDS } = await import('../router.js');
     const names = TELEGRAM_BOT_COMMANDS.map((c) => c.command);
     expect(names).toEqual(
-      expect.arrayContaining(['help', 'new', 'ask', 'status', 'model', 'ws', 'recall', 'list', 'show']),
+      expect.arrayContaining([
+        'help',
+        'new',
+        'ask',
+        'status',
+        'model',
+        'mode',
+        'ws',
+        'recall',
+        'list',
+        'show',
+      ]),
     );
     for (const cmd of TELEGRAM_BOT_COMMANDS) {
       expect(cmd.command).toMatch(/^[a-z0-9_]{1,32}$/);

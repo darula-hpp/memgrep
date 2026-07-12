@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-12
+
+### Added
+
+- **`/mode`** — switch Cursor conversation mode from Telegram (`agent` or `plan`; `ask` aliases to `plan`). Persisted per bot profile and shown on `/status`.
+
+### Fixed
+
+- Telegram no longer fails with `Agent already has active run` after a timed-out or crashed Cursor turn — retries once with SDK `local.force` to expire the stuck run.
+
 ## [1.1.0] - 2026-07-12
 
 ### Added

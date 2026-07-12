@@ -1,10 +1,12 @@
 import type { TelegramWorkspace } from '../config.js';
+import type { AgentRunMode } from './mode.js';
 
 /** Pool-level status shown by /status. */
 export type AgentStatus = {
   agentId?: string;
   cwd: string;
   model: string;
+  mode: AgentRunMode;
   workspaces: TelegramWorkspace[];
 };
 
@@ -18,6 +20,8 @@ export interface AgentSession {
   setCwd(cwd: string, name?: string): Promise<string>;
   setModel(model: string): Promise<string>;
   listModels(): Promise<string>;
+  setMode(mode: string): Promise<string>;
+  listModes(): string;
   listWorkspaces(): string;
   switchWorkspace(ref: string): Promise<string>;
   addWorkspace(name: string, dir: string): Promise<string>;

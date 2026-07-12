@@ -1,3 +1,5 @@
+import type { AgentRunMode } from './mode.js';
+
 /** Shared context for create/resume/listModels — no Telegram types. */
 export type ProviderContext = {
   apiKey: string;
@@ -7,6 +9,11 @@ export type ProviderContext = {
   mcpToken?: string;
   /** Optional agent display name (jobs use memgrep-job-<name>). */
   name?: string;
+};
+
+export type ProviderSendOptions = {
+  /** Conversation mode for this turn (Cursor: agent | plan). */
+  mode?: AgentRunMode;
 };
 
 export type ProviderRunResult = {
@@ -25,7 +32,7 @@ export type ProviderRun = {
 
 export type ProviderSession = {
   id: string;
-  send(text: string): Promise<ProviderRun>;
+  send(text: string, options?: ProviderSendOptions): Promise<ProviderRun>;
   dispose(): Promise<void>;
 };
 

@@ -16,7 +16,9 @@ Cursor:
   /cwd [path]        show or switch by full path
   /model             list models (* = current)
   /model <id>        switch model (new conversation)
-  /status            cwd + model + workspaces
+  /mode              list Cursor modes (* = current)
+  /mode <agent|plan> switch conversation mode
+  /status            cwd + model + mode + workspaces
 
 Memory shortcuts:
   /recall <query>    semantic search
@@ -42,6 +44,7 @@ export const TELEGRAM_BOT_COMMANDS: readonly TelegramBotCommand[] = [
   { command: 'ask', description: 'Send a prompt to Cursor' },
   { command: 'status', description: 'Show cwd, model, and agent' },
   { command: 'model', description: 'List or switch Cursor model' },
+  { command: 'mode', description: 'List or switch agent/plan mode' },
   { command: 'ws', description: 'List or switch workspaces' },
   { command: 'cwd', description: 'Show or set working directory' },
   { command: 'recall', description: 'Semantic search memory' },
@@ -77,6 +80,12 @@ export function parseTelegramCommand(text: string | undefined): TelegramCommand 
   if (modelMatch) {
     const model = modelMatch[1]?.trim();
     return { kind: 'model', model: model || undefined };
+  }
+
+  const modeMatch = raw.match(/^\/mode(?:@\w+)?(?:\s+(.+))?$/i);
+  if (modeMatch) {
+    const mode = modeMatch[1]?.trim();
+    return { kind: 'mode', mode: mode || undefined };
   }
 
   const wsMatch = raw.match(/^\/(?:ws|workspace|workspaces)(?:@\w+)?(?:\s+(.+))?$/i);

@@ -32,6 +32,7 @@ export type TelegramCommand =
   | { kind: 'ws'; action: 'remove'; name: string }
   | { kind: 'status' }
   | { kind: 'model'; model?: string }
+  | { kind: 'mode'; mode?: string }
   | { kind: 'ignored' };
 
 export type TelegramUpdateMessage = {

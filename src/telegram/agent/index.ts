@@ -14,3 +14,10 @@ export {
   type AgentPoolOptions,
 } from './pool.js';
 export { createCursorProvider } from './providers/cursor.js';
+export {
+  AGENT_RUN_MODES,
+  DEFAULT_AGENT_RUN_MODE,
+  formatModesText,
+  parseAgentRunMode,
+  type AgentRunMode,
+} from './mode.js';

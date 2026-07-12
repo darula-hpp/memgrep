@@ -1,4 +1,11 @@
-import { Agent, Cursor, CursorAgentError, type SDKAgent } from '@cursor/sdk';
+import {
+  Agent,
+  AgentBusyError,
+  Cursor,
+  CursorAgentError,
+  type SDKAgent,
+  type SendOptions,
+} from '@cursor/sdk';
 import type {
   CodingAgentProvider,
   ProviderContext,
@@ -28,24 +35,44 @@ function sdkOptions(ctx: ProviderContext) {
   };
 }
 
+function sendOptions(options?: { mode?: 'agent' | 'plan' }, force = false): SendOptions | undefined {
+  const next: SendOptions = {};
+  if (options?.mode) next.mode = options.mode;
+  if (force) next.local = { force: true };
+  return next.mode || next.local ? next : undefined;
+}
+
+function wrapRun(run: Awaited<ReturnType<SDKAgent['send']>>): ProviderRun {
+  return {
+    id: run.id,
+    wait: async () => {
+      const result = await run.wait();
+      return {
+        id: result.id,
+        status: result.status,
+        result: result.result,
+        modelId: result.model?.id,
+      };
+    },
+    cancel: () => run.cancel(),
+  };
+}
+
 function wrapSession(agent: SDKAgent): ProviderSession {
   return {
     id: agent.agentId,
-    async send(text: string): Promise<ProviderRun> {
-      const run = await agent.send(text);
-      return {
-        id: run.id,
-        wait: async () => {
-          const result = await run.wait();
-          return {
-            id: result.id,
-            status: result.status,
-            result: result.result,
-            modelId: result.model?.id,
-          };
-        },
-        cancel: () => run.cancel(),
-      };
+    async send(text: string, options?: { mode?: 'agent' | 'plan' }): Promise<ProviderRun> {
+      try {
+        return wrapRun(await agent.send(text, sendOptions(options)));
+      } catch (error) {
+        // Local agents can stay "busy" after a crashed/timed-out process even
+        // though no live run remains. SDK force expires the wedged run.
+        if (!(error instanceof AgentBusyError)) throw error;
+        console.error(
+          `memgrep telegram: agent ${agent.agentId} busy — forcing new run (expire stuck active run)`,
+        );
+        return wrapRun(await agent.send(text, sendOptions(options, true)));
+      }
     },
     async dispose(): Promise<void> {
       await agent[Symbol.asyncDispose]();

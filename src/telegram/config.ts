@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { z } from 'zod';
 import { writeFileAtomic } from '../fs/atomic-write.js';
 import { defaultHome } from '../memory/store.js';
+import { DEFAULT_AGENT_RUN_MODE, isAgentRunMode } from './agent/mode.js';
 
 /** Legacy single-bot file (migrated to telegram/default.json). */
 export const TELEGRAM_CONFIG_FILE = 'telegram.json';
@@ -29,6 +30,8 @@ export type TelegramConfig = {
   workspaces?: TelegramWorkspace[];
   /** Model id, e.g. composer-2.5 */
   model?: string;
+  /** Cursor conversation mode: agent | plan */
+  agentMode?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -42,6 +45,7 @@ export type ResolvedTelegramConfig = {
   cwd: string;
   workspaces: TelegramWorkspace[];
   model: string;
+  agentMode: string;
   mcpUrl: string;
   mcpToken?: string;
   /** Where the on-disk config lives (if any). */
@@ -210,6 +214,7 @@ const telegramConfigSchema = z.object({
   cwd: z.string().optional(),
   workspaces: z.array(telegramWorkspaceSchema).optional(),
   model: z.string().optional(),
+  agentMode: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -296,6 +301,7 @@ export function writeTelegramConfig(
     cwd,
     workspaces,
     model: config.model ?? existing?.model,
+    agentMode: config.agentMode ?? existing?.agentMode,
     createdAt: config.createdAt ?? existing?.createdAt ?? now,
     updatedAt: config.updatedAt ?? now,
   };
@@ -311,7 +317,14 @@ export function updateTelegramConfig(
   patch: Partial<
     Pick<
       TelegramConfig,
-      'cursorApiKey' | 'cwd' | 'model' | 'botToken' | 'allowedUserIds' | 'botUsername' | 'workspaces'
+      | 'cursorApiKey'
+      | 'cwd'
+      | 'model'
+      | 'agentMode'
+      | 'botToken'
+      | 'allowedUserIds'
+      | 'botUsername'
+      | 'workspaces'
     >
   >,
   home = defaultHome(),
@@ -333,6 +346,7 @@ export function updateTelegramConfig(
       cwd: patch.cwd ?? existing.cwd,
       workspaces: patch.workspaces ?? existing.workspaces,
       model: patch.model ?? existing.model,
+      agentMode: patch.agentMode ?? existing.agentMode,
     },
     home,
     name,
@@ -386,6 +400,8 @@ export function resolveTelegramConfig(
   const cwdRaw = env.MEMGREP_TELEGRAM_CWD?.trim() || file?.cwd || process.cwd();
   const cwd = expandHomePath(cwdRaw);
   const model = env.MEMGREP_TELEGRAM_MODEL?.trim() || file?.model || DEFAULT_CURSOR_MODEL;
+  const agentModeRaw = file?.agentMode?.trim() || DEFAULT_AGENT_RUN_MODE;
+  const agentMode = isAgentRunMode(agentModeRaw) ? agentModeRaw : DEFAULT_AGENT_RUN_MODE;
 
   return {
     profile: name,
@@ -396,6 +412,7 @@ export function resolveTelegramConfig(
     cwd,
     workspaces: normalizeWorkspaces(file?.workspaces, cwd),
     model,
+    agentMode,
     mcpUrl: (env.MEMGREP_MCP_URL ?? 'http://127.0.0.1:3921/mcp').replace(/\/$/, ''),
     mcpToken: env.MEMGREP_MCP_TOKEN,
     configPath: telegramConfigPath(home, name),
