@@ -9,6 +9,11 @@ import {
   workspaceNameFromPath,
   type TelegramWorkspace,
 } from './config.js';
+import {
+  clearPersistedAgentId,
+  getPersistedAgentId,
+  setPersistedAgentId,
+} from './session-store.js';
 
 export type CursorAgentStatus = {
   agentId?: string;
@@ -32,6 +37,31 @@ export interface CursorAgentSession {
   close(): Promise<void>;
 }
 
+export type AgentLifecycleOptions = {
+  apiKey: string;
+  model: { id: string };
+  name?: string;
+  local: { cwd: string };
+  mcpServers: {
+    memgrep: {
+      type: 'http';
+      url: string;
+      headers?: Record<string, string>;
+    };
+  };
+};
+
+/** Injectable create/resume for tests. */
+export type AgentLifecycle = {
+  create(options: AgentLifecycleOptions): Promise<SDKAgent>;
+  resume(agentId: string, options: AgentLifecycleOptions): Promise<SDKAgent>;
+};
+
+const defaultAgentLifecycle: AgentLifecycle = {
+  create: (options) => Agent.create(options),
+  resume: (agentId, options) => Agent.resume(agentId, options),
+};
+
 export type CursorAgentPoolOptions = {
   apiKey: string;
   cwd: string;
@@ -45,22 +75,26 @@ export type CursorAgentPoolOptions = {
   profile?: string;
   /** MEMGREP_HOME override for config persistence. */
   home?: string;
+  /** Override Agent.create / Agent.resume (tests). */
+  agents?: AgentLifecycle;
 };
 
 /**
- * One durable local Cursor agent per Telegram user id.
- * Free-text turns call send(); /new resets; /ws and /cwd switch project folders.
+ * One durable local Cursor agent per Telegram user id (+ cwd).
+ * Free-text turns call send(); /new clears the persisted id; drops resume via Agent.resume.
  */
 export class CursorAgentPool {
   private readonly sessions = new Map<number, CursorAgentHandle>();
   private cwd: string;
   private model: string;
   private workspaces: TelegramWorkspace[];
+  private readonly agents: AgentLifecycle;
 
   constructor(private readonly options: CursorAgentPoolOptions) {
     this.cwd = options.cwd;
     this.model = options.model;
     this.workspaces = normalizeWorkspaces(options.workspaces, options.cwd);
+    this.agents = options.agents ?? defaultAgentLifecycle;
   }
 
   sessionFor(userId: number): CursorAgentSession {
@@ -83,11 +117,11 @@ export class CursorAgentPool {
   }
 
   /** @internal */
-  async createAgent(): Promise<SDKAgent> {
+  agentOptions(): AgentLifecycleOptions {
     const headers = this.options.mcpToken
       ? { Authorization: `Bearer ${this.options.mcpToken}` }
       : undefined;
-    return Agent.create({
+    return {
       apiKey: this.options.apiKey,
       model: { id: this.model },
       name: 'memgrep-telegram',
@@ -99,10 +133,23 @@ export class CursorAgentPool {
           ...(headers ? { headers } : {}),
         },
       },
-    });
+    };
   }
 
   /** @internal */
+  async createAgent(): Promise<SDKAgent> {
+    return this.agents.create(this.agentOptions());
+  }
+
+  /** @internal */
+  async resumeAgent(agentId: string): Promise<SDKAgent> {
+    return this.agents.resume(agentId, this.agentOptions());
+  }
+
+  /**
+   * Switch project folder. Drops in-memory handles so the next message resumes
+   * (or creates) the agent for the new cwd — does not clear other cwd sessions.
+   */
   async setCwd(cwd: string, name?: string): Promise<string> {
     const resolved = expandHomePath(cwd);
     if (!existsSync(resolved)) {
@@ -116,18 +163,21 @@ export class CursorAgentPool {
     if (this.options.persistConfig !== false) {
       this.persist({ cwd: resolved, workspaces: this.workspaces });
     }
-    await this.resetAll();
+    await this.disposeAllMemory();
     return resolved;
   }
 
-  /** @internal */
+  /**
+   * Change model. Keep persisted agent ids; dispose memory so the next ensure
+   * resumes with the updated model on the resume/create options.
+   */
   async setModel(model: string): Promise<string> {
     const resolved = await this.resolveModelId(model);
     this.model = resolved;
     if (this.options.persistConfig !== false) {
       this.persist({ model: resolved });
     }
-    await this.resetAll();
+    await this.disposeAllMemory();
     return resolved;
   }
 
@@ -159,7 +209,6 @@ export class CursorAgentPool {
     try {
       models = await Cursor.models.list({ apiKey: this.options.apiKey });
     } catch {
-      // Offline / API flake — accept the raw id so the user can still switch.
       return trimmed;
     }
 
@@ -218,23 +267,23 @@ export class CursorAgentPool {
     if (next.length === this.workspaces.length) {
       throw new Error(`No workspace named "${name}".`);
     }
-    const removed = this.workspaces.find((w) => w.name.toLowerCase() === label);
     this.workspaces = next;
-    if (removed && removed.path === this.cwd && next.length > 0) {
-      // Stay on cwd even if removed from list — just drop the name entry.
-    }
     if (this.options.persistConfig !== false) {
       this.persist({ workspaces: this.workspaces });
     }
   }
 
-  private persist(
-    patch: Parameters<typeof updateTelegramConfig>[0],
-  ): void {
+  private persist(patch: Parameters<typeof updateTelegramConfig>[0]): void {
     updateTelegramConfig(patch, this.options.home, this.options.profile);
   }
 
-  /** @internal */
+  /** Drop in-memory agents only — persisted ids stay for resume. */
+  async disposeAllMemory(): Promise<void> {
+    const handles = [...this.sessions.values()];
+    await Promise.all(handles.map((h) => h.disposeMemory()));
+  }
+
+  /** @internal — /new clears disk for each user's current cwd. */
   async resetAll(): Promise<void> {
     const handles = [...this.sessions.values()];
     await Promise.all(handles.map((h) => h.reset()));
@@ -254,6 +303,16 @@ export class CursorAgentPool {
   getWorkspaces(): TelegramWorkspace[] {
     return this.workspaces;
   }
+
+  /** @internal */
+  getHome(): string | undefined {
+    return this.options.home;
+  }
+
+  /** @internal */
+  getProfile(): string {
+    return this.options.profile ?? 'default';
+  }
 }
 
 /** Cap hung Cursor runs so one stalled turn cannot block the Telegram reply queue. */
@@ -269,6 +328,8 @@ class CursorRunTimeoutError extends Error {
 class CursorAgentHandle implements CursorAgentSession {
   private agent: SDKAgent | undefined;
   private creating: Promise<SDKAgent> | undefined;
+  /** Cwd this in-memory agent was opened for (invalidate on pool cwd change). */
+  private agentCwd: string | undefined;
 
   constructor(
     private readonly userId: number,
@@ -276,9 +337,14 @@ class CursorAgentHandle implements CursorAgentSession {
   ) {}
 
   status(): CursorAgentStatus {
+    const cwd = this.pool.getCwd();
+    const liveId = this.agent && this.agentCwd === cwd ? this.agent.agentId : undefined;
+    const persisted =
+      liveId ??
+      getPersistedAgentId(this.userId, cwd, this.pool.getHome(), this.pool.getProfile());
     return {
-      agentId: this.agent?.agentId,
-      cwd: this.pool.getCwd(),
+      agentId: persisted,
+      cwd,
       model: this.pool.getModel(),
       workspaces: this.pool.getWorkspaces(),
     };
@@ -300,7 +366,7 @@ class CursorAgentHandle implements CursorAgentSession {
         return (
           `Cursor run failed (${result.id}).` +
           (detail ? `\n${detail}` : '\nCheck the Cursor dashboard / local logs.') +
-          `\nTry /new, or /model composer-2.5 if the current model is flaky.`
+          `\nTry again, or /new / /model composer-2.5 if the model is flaky.`
         );
       }
       if (result.status === 'cancelled') {
@@ -313,17 +379,18 @@ class CursorAgentHandle implements CursorAgentSession {
         console.error(
           `memgrep telegram: ${error.message}` +
             (run ? ` (run ${run.id})` : '') +
-            ` — cancelling and resetting agent`,
+            ` — cancelling run (agent id kept for resume)`,
         );
         try {
           await run?.cancel();
         } catch {
-          // Best-effort cancel; dispose below either way.
+          // Best-effort cancel; dispose memory below either way.
         }
-        await this.disposeAgent();
+        // Keep persisted agentId so the next message can Agent.resume.
+        await this.disposeMemory();
         return (
           `${error.message}.` +
-          `\nThe stuck Cursor turn was cancelled. Send /new, then try again.`
+          `\nThe stuck turn was cancelled; the conversation was kept. Send another message to resume, or /new to start fresh.`
         );
       }
       if (error instanceof CursorAgentError) {
@@ -334,8 +401,11 @@ class CursorAgentHandle implements CursorAgentSession {
     }
   }
 
+  /** Explicit /new — dispose memory and clear persisted id for current cwd. */
   async reset(): Promise<void> {
-    await this.disposeAgent();
+    const cwd = this.pool.getCwd();
+    await this.disposeMemory();
+    clearPersistedAgentId(this.userId, cwd, this.pool.getHome(), this.pool.getProfile());
   }
 
   async setCwd(cwd: string, name?: string): Promise<string> {
@@ -344,7 +414,7 @@ class CursorAgentHandle implements CursorAgentSession {
 
   async setModel(model: string): Promise<string> {
     const next = await this.pool.setModel(model);
-    return `Model set to ${next} (new Cursor conversation).`;
+    return `Model set to ${next} (same conversation resumes with the new model).`;
   }
 
   async listModels(): Promise<string> {
@@ -357,7 +427,7 @@ class CursorAgentHandle implements CursorAgentSession {
 
   async switchWorkspace(ref: string): Promise<string> {
     const name = await this.pool.switchWorkspace(ref);
-    return `Switched to ${name} → ${this.pool.getCwd()} (new Cursor conversation).`;
+    return `Switched to ${name} → ${this.pool.getCwd()} (resumes that workspace's chat if any).`;
   }
 
   async addWorkspace(name: string, dir: string): Promise<string> {
@@ -371,31 +441,67 @@ class CursorAgentHandle implements CursorAgentSession {
   }
 
   async close(): Promise<void> {
-    await this.disposeAgent();
+    // Process shutdown — keep persisted ids for the next LaunchAgent start.
+    await this.disposeMemory();
+  }
+
+  /** @internal */
+  async disposeMemory(): Promise<void> {
+    const agent = this.agent;
+    this.agent = undefined;
+    this.agentCwd = undefined;
+    this.creating = undefined;
+    if (agent) {
+      await agent[Symbol.asyncDispose]();
+    }
   }
 
   private async ensureAgent(): Promise<SDKAgent> {
-    if (this.agent) return this.agent;
+    const cwd = this.pool.getCwd();
+    if (this.agent && this.agentCwd === cwd) return this.agent;
+    if (this.agent && this.agentCwd !== cwd) {
+      await this.disposeMemory();
+    }
     if (!this.creating) {
-      this.creating = this.pool.createAgent().then((agent) => {
-        this.agent = agent;
+      this.creating = this.openAgent(cwd).finally(() => {
         this.creating = undefined;
-        console.error(
-          `memgrep telegram: Cursor agent ${agent.agentId} for user ${this.userId} (cwd ${this.pool.getCwd()})`,
-        );
-        return agent;
       });
     }
     return this.creating;
   }
 
-  private async disposeAgent(): Promise<void> {
-    const agent = this.agent;
-    this.agent = undefined;
-    this.creating = undefined;
-    if (agent) {
-      await agent[Symbol.asyncDispose]();
+  private async openAgent(cwd: string): Promise<SDKAgent> {
+    const home = this.pool.getHome();
+    const profile = this.pool.getProfile();
+    const persisted = getPersistedAgentId(this.userId, cwd, home, profile);
+
+    if (persisted) {
+      try {
+        const agent = await this.pool.resumeAgent(persisted);
+        this.agent = agent;
+        this.agentCwd = cwd;
+        setPersistedAgentId(this.userId, cwd, agent.agentId, home, profile);
+        console.error(
+          `memgrep telegram: resumed agent ${agent.agentId} for user ${this.userId} (cwd ${cwd})`,
+        );
+        return agent;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error(
+          `memgrep telegram: resume failed for ${persisted} (${detail}); creating a new agent`,
+        );
+        clearPersistedAgentId(this.userId, cwd, home, profile);
+      }
     }
+
+    const agent = await this.pool.createAgent();
+    this.agent = agent;
+    this.agentCwd = cwd;
+    setPersistedAgentId(this.userId, cwd, agent.agentId, home, profile);
+    console.error(
+      `memgrep telegram: created agent ${agent.agentId} for user ${this.userId} (cwd ${cwd})`,
+    );
+    return agent;
   }
 }
 
