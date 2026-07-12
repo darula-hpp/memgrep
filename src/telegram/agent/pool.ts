@@ -300,6 +300,10 @@ class AgentSessionHandle implements AgentSession {
   }
 
   async send(text: string): Promise<string> {
+    return this.sendAttempt(text, true);
+  }
+
+  private async sendAttempt(text: string, retryOnBusy: boolean): Promise<string> {
     const session = await this.ensureSession();
     let run: Awaited<ReturnType<ProviderSession['send']>> | undefined;
     try {
@@ -352,13 +356,20 @@ class AgentSessionHandle implements AgentSession {
           `\nSend your message again.`
         );
       }
-      const retryable = this.pool.provider.isRetryableError?.(error) === true;
       const message = error instanceof Error ? error.message : String(error);
       const busy = /already has active run/i.test(message);
+      if (busy && retryOnBusy) {
+        console.error(
+          `memgrep telegram: agent still busy after force — resetting and retrying once`,
+        );
+        await this.reset();
+        return this.sendAttempt(text, false);
+      }
+      const retryable = this.pool.provider.isRetryableError?.(error) === true;
       return (
         `Agent error: ${message}${retryable ? ' (retryable)' : ''}` +
         (busy
-          ? `\nA previous turn is still stuck on this agent. Try again, or /new to start fresh.`
+          ? `\nStarted a fresh conversation; send your message again if this persists.`
           : '')
       );
     }

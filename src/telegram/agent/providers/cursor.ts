@@ -81,6 +81,12 @@ function summarizeConversationTurn(turn: unknown): string | undefined {
   return clipped || undefined;
 }
 
+function isBusyError(error: unknown): boolean {
+  if (error instanceof AgentBusyError) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /already has active run/i.test(message);
+}
+
 function wrapSession(agent: SDKAgent): ProviderSession {
   return {
     id: agent.agentId,
@@ -90,11 +96,21 @@ function wrapSession(agent: SDKAgent): ProviderSession {
       } catch (error) {
         // Local agents can stay "busy" after a crashed/timed-out process even
         // though no live run remains. SDK force expires the wedged run.
-        if (!(error instanceof AgentBusyError)) throw error;
+        if (!isBusyError(error)) throw error;
         console.error(
           `memgrep telegram: agent ${agent.agentId} busy — forcing new run (expire stuck active run)`,
         );
-        return wrapRun(await agent.send(text, sendOptions(options, true)));
+        try {
+          return wrapRun(await agent.send(text, sendOptions(options, true)));
+        } catch (forcedError) {
+          // Force didn't clear it — surface as busy so the pool can /new.
+          if (isBusyError(forcedError)) {
+            console.error(
+              `memgrep telegram: agent ${agent.agentId} still busy after force — pool should reset`,
+            );
+          }
+          throw forcedError;
+        }
       }
     },
     async dispose(): Promise<void> {
