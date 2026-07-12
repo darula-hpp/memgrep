@@ -1,8 +1,9 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
+import { mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type DatabaseType from 'better-sqlite3';
+import { writeFileAtomic } from '../fs/atomic-write.js';
 import { defaultHome } from '../memory/store.js';
 import { getScheduleProvider } from './schedule.js';
 import type {
@@ -99,12 +100,7 @@ export class JobStore {
   }
 
   private writeFile(data: JobsFile): void {
-    const dir = jobsDir(this.home);
-    mkdirSync(dir, { recursive: true });
-    const file = jobsFilePath(this.home);
-    const tmp = `${file}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
-    renameSync(tmp, file);
+    writeFileAtomic(jobsFilePath(this.home), JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
   }
 
   list(): Job[] {

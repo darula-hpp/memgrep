@@ -139,6 +139,28 @@ export class TelegramApi {
       throw new Error(`sendMessage failed: ${res.status} ${body}`);
     }
   }
+
+  /**
+   * Register slash commands so Telegram clients show `/` autocomplete suggestions.
+   * @see https://core.telegram.org/bots/api#setmycommands
+   */
+  async setMyCommands(
+    commands: ReadonlyArray<{ command: string; description: string }>,
+  ): Promise<void> {
+    const res = await fetchWithRetry(
+      this.url('setMyCommands'),
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ commands }),
+      },
+      15_000,
+    );
+    const body = (await res.json()) as { ok?: boolean; description?: string };
+    if (!res.ok || !body.ok) {
+      throw new Error(body.description ?? `setMyCommands failed (HTTP ${res.status})`);
+    }
+  }
 }
 
 function isTimeoutError(error: unknown): boolean {

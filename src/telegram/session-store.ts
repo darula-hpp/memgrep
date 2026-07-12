@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { z } from 'zod';
+import { writeFileAtomic } from '../fs/atomic-write.js';
 import { defaultHome } from '../memory/store.js';
 import {
   DEFAULT_TELEGRAM_PROFILE,
@@ -7,16 +9,18 @@ import {
   telegramProfilesDir,
 } from './config.js';
 
-export type SessionEntry = {
-  agentId: string;
-  updatedAt: string;
-};
+const sessionEntrySchema = z.object({
+  agentId: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
 
-export type SessionStoreFile = {
-  version: 1;
-  /** telegramUserId → cwd → session */
-  byUser: Record<string, Record<string, SessionEntry>>;
-};
+const sessionStoreSchema = z.object({
+  version: z.literal(1),
+  byUser: z.record(z.string(), z.record(z.string(), sessionEntrySchema)),
+});
+
+export type SessionEntry = z.infer<typeof sessionEntrySchema>;
+export type SessionStoreFile = z.infer<typeof sessionStoreSchema>;
 
 /** Sessions live beside profile configs: ~/.memgrep/telegram/<profile>.sessions.json */
 export function telegramSessionsPath(
@@ -38,11 +42,15 @@ export function readSessionStore(
     return { version: 1, byUser: {} };
   }
   try {
-    const raw = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<SessionStoreFile>;
-    if (raw?.version !== 1 || typeof raw.byUser !== 'object' || !raw.byUser) {
+    const raw: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
+    const parsed = sessionStoreSchema.safeParse(raw);
+    if (!parsed.success) {
+      console.error(
+        `memgrep telegram: invalid session store at ${filePath}; starting empty (${parsed.error.issues[0]?.message ?? 'schema'})`,
+      );
       return { version: 1, byUser: {} };
     }
-    return { version: 1, byUser: raw.byUser };
+    return parsed.data;
   } catch {
     return { version: 1, byUser: {} };
   }
@@ -53,11 +61,12 @@ function writeSessionStore(
   home = defaultHome(),
   profile: string = DEFAULT_TELEGRAM_PROFILE,
 ): void {
-  const dir = telegramProfilesDir(home);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(telegramSessionsPath(home, profile), `${JSON.stringify(store, null, 2)}\n`, {
-    mode: 0o600,
-  });
+  mkdirSync(telegramProfilesDir(home), { recursive: true });
+  writeFileAtomic(
+    telegramSessionsPath(home, profile),
+    `${JSON.stringify(store, null, 2)}\n`,
+    { mode: 0o600 },
+  );
 }
 
 export function getPersistedAgentId(

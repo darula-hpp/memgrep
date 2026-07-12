@@ -1,14 +1,16 @@
-import { Agent, CursorAgentError } from '@cursor/sdk';
 import { existsSync } from 'node:fs';
+import { createCursorProvider } from '../telegram/agent/providers/cursor.js';
 import type { JobExecutor, JobExecuteContext } from './executor.js';
 import { buildPlaybookPrompt } from './executor.js';
 import type { Job, JobExecuteResult } from './types.js';
 
 /**
- * Default executor: one-shot Cursor agent with memgrep MCP attached.
+ * Default executor: one-shot Cursor agent via CodingAgentProvider (same adapter as Telegram).
  */
 export class CursorJobExecutor implements JobExecutor {
   readonly kind = 'cursor';
+
+  constructor(private readonly provider = createCursorProvider()) {}
 
   async execute(job: Job, ctx: JobExecuteContext): Promise<JobExecuteResult> {
     if (!existsSync(job.cwd)) {
@@ -16,27 +18,17 @@ export class CursorJobExecutor implements JobExecutor {
     }
 
     const prompt = buildPlaybookPrompt(job, ctx.scheduledAt);
-    const headers = ctx.mcpToken
-      ? { Authorization: `Bearer ${ctx.mcpToken}` }
-      : undefined;
+    const session = await this.provider.create({
+      apiKey: ctx.cursorApiKey,
+      cwd: job.cwd,
+      model: ctx.model,
+      mcpUrl: ctx.mcpUrl,
+      mcpToken: ctx.mcpToken,
+      name: `memgrep-job-${job.name}`.slice(0, 64),
+    });
 
-    let agent: Awaited<ReturnType<typeof Agent.create>> | undefined;
     try {
-      agent = await Agent.create({
-        apiKey: ctx.cursorApiKey,
-        model: { id: ctx.model },
-        name: `memgrep-job-${job.name}`.slice(0, 64),
-        local: { cwd: job.cwd },
-        mcpServers: {
-          memgrep: {
-            type: 'http',
-            url: ctx.mcpUrl,
-            ...(headers ? { headers } : {}),
-          },
-        },
-      });
-
-      const run = await agent.send(prompt);
+      const run = await session.send(prompt);
       const result = await run.wait();
       if (result.status === 'error') {
         return {
@@ -45,22 +37,21 @@ export class CursorJobExecutor implements JobExecutor {
           error: `Cursor run failed (${result.id}). Check the Cursor dashboard / local logs.`,
         };
       }
+      if (result.status === 'cancelled') {
+        return { ok: false, summary: '', error: `Cursor run cancelled (${result.id}).` };
+      }
       const text = result.result?.trim() || '(Cursor finished with no text reply.)';
       return { ok: true, summary: text };
     } catch (error) {
-      if (error instanceof CursorAgentError) {
-        return {
-          ok: false,
-          summary: '',
-          error: `Cursor error: ${error.message}${error.isRetryable ? ' (retryable)' : ''}`,
-        };
-      }
+      const retryable = this.provider.isRetryableError?.(error) === true;
       const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, summary: '', error: `Cursor error: ${message}` };
+      return {
+        ok: false,
+        summary: '',
+        error: `Cursor error: ${message}${retryable ? ' (retryable)' : ''}`,
+      };
     } finally {
-      if (agent) {
-        await agent[Symbol.asyncDispose]();
-      }
+      await session.dispose();
     }
   }
 }

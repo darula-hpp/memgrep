@@ -14,6 +14,7 @@ import {
   type TelegramConfig,
 } from './config.js';
 import { formatFetchError } from './errors.js';
+import { TELEGRAM_BOT_COMMANDS } from './router.js';
 import { defaultHome } from '../memory/store.js';
 
 function redactHint(token: string): string {
@@ -265,6 +266,15 @@ export async function runTelegramSetup(options: {
       await api.sendMessage(
         chatId,
         'memgrep telegram is linked. Free text talks to Cursor on your Mac; use /recall /list /show for memory shortcuts.\n\nTry: fix the failing test\nOr /help',
+      );
+    }
+
+    try {
+      await api.setMyCommands([...TELEGRAM_BOT_COMMANDS]);
+      console.log('Registered Telegram slash-command suggestions (/ menu).');
+    } catch (error) {
+      console.error(
+        `Could not register slash suggestions: ${formatFetchError(error)}`,
       );
     }
 

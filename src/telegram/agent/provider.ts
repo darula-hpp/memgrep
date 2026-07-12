@@ -1,0 +1,49 @@
+/** Shared context for create/resume/listModels — no Telegram types. */
+export type ProviderContext = {
+  apiKey: string;
+  cwd: string;
+  model: string;
+  mcpUrl: string;
+  mcpToken?: string;
+  /** Optional agent display name (jobs use memgrep-job-<name>). */
+  name?: string;
+};
+
+export type ProviderRunResult = {
+  id: string;
+  status: 'finished' | 'error' | 'cancelled';
+  result?: string;
+  modelId?: string;
+};
+
+/** One in-flight turn; pool applies timeouts and maps errors to user text. */
+export type ProviderRun = {
+  id: string;
+  wait(): Promise<ProviderRunResult>;
+  cancel(): Promise<void>;
+};
+
+export type ProviderSession = {
+  id: string;
+  send(text: string): Promise<ProviderRun>;
+  dispose(): Promise<void>;
+};
+
+export type ProviderModel = {
+  id: string;
+  displayName?: string;
+  aliases?: string[];
+};
+
+/**
+ * Drop-in coding-agent backend. Cursor is one implementation;
+ * another provider can implement this without touching Telegram.
+ */
+export type CodingAgentProvider = {
+  readonly id: string;
+  create(ctx: ProviderContext): Promise<ProviderSession>;
+  resume(agentId: string, ctx: ProviderContext): Promise<ProviderSession>;
+  listModels(ctx: ProviderContext): Promise<ProviderModel[]>;
+  /** True when the thrown error is retryable (shown in user-facing messages). */
+  isRetryableError?(error: unknown): boolean;
+};

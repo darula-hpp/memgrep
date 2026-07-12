@@ -1,6 +1,8 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, renameSync } from 'node:fs';
+import { mkdirSync, readFileSync, existsSync, readdirSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { homedir } from 'node:os';
+import { z } from 'zod';
+import { writeFileAtomic } from '../fs/atomic-write.js';
 import { defaultHome } from '../memory/store.js';
 
 /** Legacy single-bot file (migrated to telegram/default.json). */
@@ -194,12 +196,41 @@ export function formatWorkspaceList(workspaces: TelegramWorkspace[], currentCwd:
   return `Workspaces (* = current):\n\n${lines.join('\n\n')}\n\nSwitch: /ws <number|name>`;
 }
 
+const telegramWorkspaceSchema = z.object({
+  name: z.string().min(1),
+  path: z.string().min(1),
+});
+
+const telegramConfigSchema = z.object({
+  version: z.literal(1),
+  botToken: z.string().min(1),
+  allowedUserIds: z.array(z.number().int().positive()),
+  botUsername: z.string().optional(),
+  cursorApiKey: z.string().optional(),
+  cwd: z.string().optional(),
+  workspaces: z.array(telegramWorkspaceSchema).optional(),
+  model: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 function readConfigFile(filePath: string): TelegramConfig {
-  const raw = JSON.parse(readFileSync(filePath, 'utf8')) as TelegramConfig;
-  if (raw.version !== 1 || typeof raw.botToken !== 'string' || !Array.isArray(raw.allowedUserIds)) {
-    throw new Error(`Invalid telegram config at ${filePath}`);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    throw new Error(
+      `Invalid telegram config at ${filePath}: ${error instanceof Error ? error.message : error}`,
+    );
   }
-  return raw;
+  const parsed = telegramConfigSchema.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new Error(
+      `Invalid telegram config at ${filePath}: ${issue?.path.join('.') ?? 'root'} ${issue?.message ?? 'schema error'}`,
+    );
+  }
+  return parsed.data;
 }
 
 export function readTelegramConfig(
@@ -270,7 +301,9 @@ export function writeTelegramConfig(
   };
   // Allow explicit clears via empty string → omit
   if (config.cursorApiKey === '') delete next.cursorApiKey;
-  writeFileSync(telegramConfigPath(home, name), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  writeFileAtomic(telegramConfigPath(home, name), `${JSON.stringify(next, null, 2)}\n`, {
+    mode: 0o600,
+  });
   return next;
 }
 

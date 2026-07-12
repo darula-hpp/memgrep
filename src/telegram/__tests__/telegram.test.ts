@@ -22,8 +22,8 @@ import {
 } from '../config.js';
 import { helpText, parseTelegramCommand } from '../router.js';
 import { dispatchCommand } from '../bot.js';
-import type { CursorAgentSession } from '../cursor-agent.js';
-import { CURSOR_RUN_TIMEOUT_MS } from '../cursor-agent.js';
+import type { AgentSession } from '../agent/types.js';
+import { CURSOR_RUN_TIMEOUT_MS } from '../agent/pool.js';
 import {
   clampPollingStallThresholdMs,
   GET_UPDATES_CLIENT_GUARD_MS,
@@ -282,11 +282,11 @@ describe('dispatchCommand', () => {
     expect(await dispatchCommand(access, '/help')).toContain('Cursor-first');
   });
 
-  it('routes free text to a mocked Cursor session', async () => {
+  it('routes free text to a mocked agent session', async () => {
     const sent: string[] = [];
     let cwd = '/tmp/demo';
     let workspaces = [{ name: 'demo', path: '/tmp/demo' }];
-    const session: CursorAgentSession = {
+    const session: AgentSession = {
       async send(text) {
         sent.push(text);
         return `agent:${text}`;
@@ -327,15 +327,17 @@ describe('dispatchCommand', () => {
       async close() {},
     };
 
-    const cursor = {
+    const agent = {
       sessionFor: () => session,
       status: () => ({ cwd, model: 'composer-2.5', workspaces }),
+      async close() {},
+      async disposeAllMemory() {},
     };
 
     expect(
       await dispatchCommand({
         access,
-        cursor,
+        agent,
         userId: 1,
         command: { kind: 'agent', text: 'fix the flaky test' },
         text: 'fix the flaky test',
@@ -346,7 +348,7 @@ describe('dispatchCommand', () => {
     expect(
       await dispatchCommand({
         access,
-        cursor,
+        agent,
         userId: 1,
         command: { kind: 'new' },
         text: '/new',
@@ -357,7 +359,7 @@ describe('dispatchCommand', () => {
     expect(
       await dispatchCommand({
         access,
-        cursor,
+        agent,
         userId: 1,
         command: { kind: 'ws', action: 'list' },
         text: '/ws',
@@ -367,7 +369,7 @@ describe('dispatchCommand', () => {
     expect(
       await dispatchCommand({
         access,
-        cursor,
+        agent,
         userId: 1,
         command: { kind: 'ws', action: 'switch', ref: '2' },
         text: '/ws 2',
@@ -379,7 +381,7 @@ describe('dispatchCommand', () => {
     expect(
       await dispatchCommand({
         access,
-        cursor,
+        agent,
         userId: 1,
         command: { kind: 'cwd', path: project },
         text: `/cwd ${project}`,
@@ -392,7 +394,7 @@ describe('dispatchCommand', () => {
     expect(
       await dispatchCommand({
         access,
-        cursor,
+        agent,
         userId: 1,
         command: { kind: 'model' },
         text: '/model',
@@ -402,7 +404,7 @@ describe('dispatchCommand', () => {
     expect(
       await dispatchCommand({
         access,
-        cursor,
+        agent,
         userId: 1,
         command: { kind: 'model', model: 'auto' },
         text: '/model auto',
@@ -436,6 +438,21 @@ describe('helpText', () => {
     expect(text).toContain('/list');
     expect(text).toContain('/show');
     expect(text).toContain('/recall');
+  });
+});
+
+describe('TELEGRAM_BOT_COMMANDS', () => {
+  it('registers slash suggestions for the main commands', async () => {
+    const { TELEGRAM_BOT_COMMANDS } = await import('../router.js');
+    const names = TELEGRAM_BOT_COMMANDS.map((c) => c.command);
+    expect(names).toEqual(
+      expect.arrayContaining(['help', 'new', 'ask', 'status', 'model', 'ws', 'recall', 'list', 'show']),
+    );
+    for (const cmd of TELEGRAM_BOT_COMMANDS) {
+      expect(cmd.command).toMatch(/^[a-z0-9_]{1,32}$/);
+      expect(cmd.description.length).toBeGreaterThan(0);
+      expect(cmd.description.length).toBeLessThanOrEqual(256);
+    }
   });
 });
 

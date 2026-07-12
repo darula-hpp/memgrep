@@ -142,3 +142,62 @@ describe('JobsTools', () => {
     store.close();
   });
 });
+
+describe('CursorJobExecutor', () => {
+  it('runs through CodingAgentProvider and disposes the session', async () => {
+    const { CursorJobExecutor } = await import('../cursor-executor.js');
+    const home = tempHome();
+    const cwd = path.join(home, 'proj');
+    mkdirSync(cwd);
+
+    let disposed = false;
+    const executor = new CursorJobExecutor({
+      id: 'fake',
+      async create() {
+        return {
+          id: 'agent-job',
+          async send() {
+            return {
+              id: 'run-1',
+              wait: async () => ({ id: 'run-1', status: 'finished' as const, result: 'done' }),
+              cancel: async () => {},
+            };
+          },
+          async dispose() {
+            disposed = true;
+          },
+        };
+      },
+      async resume() {
+        throw new Error('not used');
+      },
+      async listModels() {
+        return [];
+      },
+    });
+
+    const job: Job = {
+      id: 'j1',
+      name: 'smoke',
+      cron: '0 9 * * *',
+      prompt: 'ping',
+      cwd,
+      mode: 'notify',
+      executor: 'cursor',
+      enabled: true,
+      nextRunAt: new Date().toISOString(),
+      lastRunAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const result = await executor.execute(job, {
+      scheduledAt: new Date().toISOString(),
+      cursorApiKey: 'key',
+      model: 'composer-2.5',
+      mcpUrl: 'http://127.0.0.1:3921/mcp',
+    });
+    expect(result).toEqual({ ok: true, summary: 'done' });
+    expect(disposed).toBe(true);
+  });
+});

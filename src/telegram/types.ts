@@ -1,5 +1,5 @@
 import type { ToolResult } from '../memory/tools.js';
-import type { CursorAgentSession } from './cursor-agent.js';
+import type { AgentPool, AgentSession } from './agent/types.js';
 import type { TelegramWorkspace } from './config.js';
 
 /** Pluggable memory backend for Telegram (local tools or remote MCP). */
@@ -14,11 +14,8 @@ export type TelegramBotConfig = {
   botToken: string;
   allowedUserIds: ReadonlySet<number>;
   access: MemoryAccess;
-  /** When set, free text /ask go to Cursor. */
-  cursor?: {
-    sessionFor(userId: number): CursorAgentSession;
-    status(): { cwd: string; model: string; workspaces: TelegramWorkspace[] };
-  };
+  /** When set, free text /ask go to the coding agent facade. */
+  agent?: AgentPool;
 };
 
 export type TelegramCommand =
@@ -48,3 +45,6 @@ export type TelegramUpdate = {
   update_id: number;
   message?: TelegramUpdateMessage;
 };
+
+/** @deprecated Prefer AgentSession from ./agent/types.js */
+export type { AgentSession };

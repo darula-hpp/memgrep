@@ -25,6 +25,30 @@ Memory shortcuts:
   /help              this message
 `;
 
+/** Slash commands registered with Telegram for `/` autocomplete suggestions. */
+export type TelegramBotCommand = {
+  command: string;
+  description: string;
+};
+
+/**
+ * BotFather-style command menu. Telegram shows these when the user types `/`.
+ * Keep descriptions short (API max 256 chars); command names lowercase 1–32.
+ */
+export const TELEGRAM_BOT_COMMANDS: readonly TelegramBotCommand[] = [
+  { command: 'start', description: 'Show help and get started' },
+  { command: 'help', description: 'List all commands' },
+  { command: 'new', description: 'Start a fresh Cursor conversation' },
+  { command: 'ask', description: 'Send a prompt to Cursor' },
+  { command: 'status', description: 'Show cwd, model, and agent' },
+  { command: 'model', description: 'List or switch Cursor model' },
+  { command: 'ws', description: 'List or switch workspaces' },
+  { command: 'cwd', description: 'Show or set working directory' },
+  { command: 'recall', description: 'Semantic search memory' },
+  { command: 'list', description: 'List remembered chats' },
+  { command: 'show', description: 'Show a chat transcript by id' },
+];
+
 export function helpText(): string {
   return HELP_TEXT;
 }

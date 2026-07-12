@@ -1,10 +1,11 @@
+import { CursorAgentError } from '@cursor/sdk';
 import { formatFetchError, isNetworkTimeoutError } from './errors.js';
 
 let installed = false;
 
 /**
- * Keep the long-running telegram process alive when the Cursor SDK (or undici)
- * emits background network failures as unhandled rejections.
+ * Keep long-running telegram/jobs processes alive when the Cursor SDK (or undici)
+ * emits transient background network failures as unhandled rejections.
  */
 export function installTelegramProcessGuards(): void {
   if (installed) return;
@@ -30,7 +31,8 @@ export function installTelegramProcessGuards(): void {
   });
 }
 
-function isTransientSdkOrNetworkError(reason: unknown, detail: string): boolean {
+/** Exported for tests — only retryable CursorAgentError / network flakes are transient. */
+export function isTransientSdkOrNetworkError(reason: unknown, detail: string): boolean {
   if (isNetworkTimeoutError(reason)) return true;
   const text = detail.toLowerCase();
   if (
@@ -46,10 +48,17 @@ function isTransientSdkOrNetworkError(reason: unknown, detail: string): boolean 
   ) {
     return true;
   }
+  if (reason instanceof CursorAgentError) {
+    return reason.isRetryable === true;
+  }
   if (reason && typeof reason === 'object') {
     const name = (reason as { name?: string }).name ?? '';
     const code = (reason as { code?: string | number }).code;
-    if (name === 'ConnectError' || name === 'CursorAgentError') return true;
+    if (name === 'ConnectError') return true;
+    // Non-retryable CursorAgentError must not be treated as transient.
+    if (name === 'CursorAgentError') {
+      return (reason as { isRetryable?: boolean }).isRetryable === true;
+    }
     // connectrpc unavailable = 14
     if (code === 14 || code === 'ETIMEDOUT' || code === 'ECONNRESET') return true;
   }

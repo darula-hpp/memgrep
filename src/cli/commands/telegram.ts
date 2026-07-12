@@ -59,7 +59,7 @@ async function startBots(opts: StartOpts): Promise<void> {
   installTelegramProcessGuards();
 
   const { TelegramBot } = await import('../../telegram/bot.js');
-  const { CursorAgentPool } = await import('../../telegram/cursor-agent.js');
+  const { createAgentPool } = await import('../../telegram/agent/index.js');
   const { resolveTelegramConfig, sanitizeTelegramProfile } = await import('../../telegram/config.js');
 
   const profiles = opts.profiles.map((p) => sanitizeTelegramProfile(p));
@@ -96,13 +96,13 @@ async function startBots(opts: StartOpts): Promise<void> {
     }
   }
 
-  const pools: InstanceType<typeof CursorAgentPool>[] = [];
+  const pools: ReturnType<typeof createAgentPool>[] = [];
   const bots: InstanceType<typeof TelegramBot>[] = [];
 
   for (const resolved of resolvedList) {
     // Re-resolve in case ensureConfig wrote during setup for another profile.
     const fresh = resolveTelegramConfig(process.env, undefined, resolved.profile) ?? resolved;
-    const cursorPool = new CursorAgentPool({
+    const agentPool = createAgentPool({
       apiKey: fresh.cursorApiKey!,
       cwd: fresh.cwd,
       model: fresh.model,
@@ -111,7 +111,7 @@ async function startBots(opts: StartOpts): Promise<void> {
       workspaces: fresh.workspaces,
       profile: fresh.profile,
     });
-    pools.push(cursorPool);
+    pools.push(agentPool);
 
     const label = fresh.botUsername ? `@${fresh.botUsername}` : fresh.profile;
     console.error(
@@ -123,7 +123,7 @@ async function startBots(opts: StartOpts): Promise<void> {
         botToken: fresh.botToken,
         allowedUserIds: fresh.allowedUserIds,
         access,
-        cursor: cursorPool,
+        agent: agentPool,
       }),
     );
   }

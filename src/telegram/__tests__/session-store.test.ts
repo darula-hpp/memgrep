@@ -1,12 +1,9 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  CursorAgentPool,
-  type AgentLifecycle,
-  type AgentLifecycleOptions,
-} from '../cursor-agent.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { createAgentPool } from '../agent/pool.js';
+import type { CodingAgentProvider, ProviderSession } from '../agent/provider.js';
 import {
   clearPersistedAgentId,
   getPersistedAgentId,
@@ -14,7 +11,6 @@ import {
   setPersistedAgentId,
   telegramSessionsPath,
 } from '../session-store.js';
-import type { SDKAgent } from '@cursor/sdk';
 
 describe('session store', () => {
   let home: string;
@@ -45,31 +41,43 @@ describe('session store', () => {
   });
 });
 
-function fakeAgent(id: string): SDKAgent {
+function fakeSession(id: string): ProviderSession {
   return {
-    agentId: id,
-    model: undefined,
-    send: vi.fn(async () => ({
-      id: `run-${id}`,
-      agentId: id,
-      status: 'finished' as const,
-      wait: async () => ({ id: `run-${id}`, status: 'finished' as const, result: `ok:${id}` }),
-      cancel: async () => {},
-      supports: () => true,
-      unsupportedReason: () => undefined,
-      stream: async function* () {},
-      conversation: async () => [],
-      onDidChangeStatus: () => () => {},
-    })),
-    close: () => {},
-    reload: async () => {},
-    [Symbol.asyncDispose]: async () => {},
-    listArtifacts: async () => [],
-    downloadArtifact: async () => Buffer.alloc(0),
-  } as unknown as SDKAgent;
+    id,
+    async send() {
+      return {
+        id: `run-${id}`,
+        wait: async () => ({ id: `run-${id}`, status: 'finished' as const, result: `ok:${id}` }),
+        cancel: async () => {},
+      };
+    },
+    async dispose() {},
+  };
 }
 
-describe('CursorAgentPool resume', () => {
+function fakeProvider(hooks: {
+  creates?: string[];
+  resumes?: string[];
+  resumeFail?: boolean;
+}): CodingAgentProvider {
+  return {
+    id: 'fake',
+    async create() {
+      hooks.creates?.push('create');
+      return fakeSession('agent-created');
+    },
+    async resume(agentId: string) {
+      if (hooks.resumeFail) throw new Error('gone');
+      hooks.resumes?.push(agentId);
+      return fakeSession(agentId);
+    },
+    async listModels() {
+      return [{ id: 'composer-2.5' }];
+    },
+  };
+}
+
+describe('AgentPool resume via CodingAgentProvider', () => {
   let home: string;
 
   afterEach(async () => {
@@ -78,23 +86,12 @@ describe('CursorAgentPool resume', () => {
 
   it('resumes a persisted agent before creating a new one', async () => {
     home = await mkdtemp(path.join(tmpdir(), 'memgrep-resume-'));
-    const cwd = home; // must exist for setCwd later
+    const cwd = home;
     setPersistedAgentId(99, cwd, 'agent-persisted', home, 'default');
 
     const creates: string[] = [];
     const resumes: string[] = [];
-    const agents: AgentLifecycle = {
-      async create(_options: AgentLifecycleOptions) {
-        creates.push('create');
-        return fakeAgent('agent-created');
-      },
-      async resume(agentId: string) {
-        resumes.push(agentId);
-        return fakeAgent(agentId);
-      },
-    };
-
-    const pool = new CursorAgentPool({
+    const pool = createAgentPool({
       apiKey: 'key',
       cwd,
       model: 'composer-2.5',
@@ -102,12 +99,11 @@ describe('CursorAgentPool resume', () => {
       home,
       profile: 'default',
       persistConfig: false,
-      agents,
+      provider: fakeProvider({ creates, resumes }),
     });
 
     const session = pool.sessionFor(99);
-    const reply = await session.send('continue please');
-    expect(reply).toBe('ok:agent-persisted');
+    expect(await session.send('continue please')).toBe('ok:agent-persisted');
     expect(resumes).toEqual(['agent-persisted']);
     expect(creates).toEqual([]);
     expect(getPersistedAgentId(99, cwd, home, 'default')).toBe('agent-persisted');
@@ -119,18 +115,23 @@ describe('CursorAgentPool resume', () => {
 
     const creates: string[] = [];
     const resumes: string[] = [];
-    const agents: AgentLifecycle = {
+    // Override create to return a stable id
+    const provider: CodingAgentProvider = {
+      id: 'fake',
       async create() {
         creates.push('create');
-        return fakeAgent('agent-new');
+        return fakeSession('agent-new');
       },
       async resume(agentId: string) {
         resumes.push(agentId);
-        return fakeAgent(agentId);
+        return fakeSession(agentId);
+      },
+      async listModels() {
+        return [];
       },
     };
 
-    const pool = new CursorAgentPool({
+    const pool = createAgentPool({
       apiKey: 'key',
       cwd,
       model: 'composer-2.5',
@@ -138,7 +139,7 @@ describe('CursorAgentPool resume', () => {
       home,
       profile: 'default',
       persistConfig: false,
-      agents,
+      provider,
     });
 
     const session = pool.sessionFor(1);
@@ -158,17 +159,21 @@ describe('CursorAgentPool resume', () => {
     setPersistedAgentId(3, cwd, 'agent-old', home, 'default');
 
     const creates: string[] = [];
-    const agents: AgentLifecycle = {
+    const provider: CodingAgentProvider = {
+      id: 'fake',
       async create() {
         creates.push('create');
-        return fakeAgent('agent-fresh');
+        return fakeSession('agent-fresh');
       },
       async resume(agentId: string) {
-        return fakeAgent(agentId);
+        return fakeSession(agentId);
+      },
+      async listModels() {
+        return [];
       },
     };
 
-    const pool = new CursorAgentPool({
+    const pool = createAgentPool({
       apiKey: 'key',
       cwd,
       model: 'composer-2.5',
@@ -176,7 +181,7 @@ describe('CursorAgentPool resume', () => {
       home,
       profile: 'default',
       persistConfig: false,
-      agents,
+      provider,
     });
 
     const session = pool.sessionFor(3);
@@ -191,16 +196,20 @@ describe('CursorAgentPool resume', () => {
     const cwd = home;
     setPersistedAgentId(5, cwd, 'agent-dead', home, 'default');
 
-    const agents: AgentLifecycle = {
+    const provider: CodingAgentProvider = {
+      id: 'fake',
       async create() {
-        return fakeAgent('agent-fallback');
+        return fakeSession('agent-fallback');
       },
       async resume() {
         throw new Error('gone');
       },
+      async listModels() {
+        return [];
+      },
     };
 
-    const pool = new CursorAgentPool({
+    const pool = createAgentPool({
       apiKey: 'key',
       cwd,
       model: 'composer-2.5',
@@ -208,7 +217,7 @@ describe('CursorAgentPool resume', () => {
       home,
       profile: 'default',
       persistConfig: false,
-      agents,
+      provider,
     });
 
     expect(await pool.sessionFor(5).send('hi')).toBe('ok:agent-fallback');

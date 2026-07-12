@@ -8,9 +8,9 @@ import {
   POLLING_STALL_THRESHOLD_MS,
   POLLING_WATCHDOG_INTERVAL_MS,
 } from './polling.js';
-import { helpText, parseTelegramCommand } from './router.js';
+import { helpText, parseTelegramCommand, TELEGRAM_BOT_COMMANDS } from './router.js';
+import type { AgentSession } from './agent/types.js';
 import type { MemoryAccess, TelegramBotConfig, TelegramCommand, TelegramUpdate } from './types.js';
-import type { CursorAgentSession } from './cursor-agent.js';
 
 export type TelegramBotRunOptions = {
   /** Stall threshold before soft-restarting the poll transport (default 120s). */
@@ -49,6 +49,14 @@ export class TelegramBot {
     console.error(
       `memgrep telegram: polling (allowlist ${[...this.config.allowedUserIds].join(', ')})`,
     );
+    try {
+      await this.api.setMyCommands([...TELEGRAM_BOT_COMMANDS]);
+    } catch (error) {
+      console.error(
+        'memgrep telegram: setMyCommands failed (slash suggestions may be missing):',
+        formatFetchError(error),
+      );
+    }
     this.lastPollCompletedAt = this.now();
     const watchdog = setInterval(() => {
       void this.checkPollingStall();
@@ -142,7 +150,7 @@ export class TelegramBot {
 
     const reply = await dispatchCommand({
       access: this.config.access,
-      cursor: this.config.cursor,
+      agent: this.config.agent,
       userId: userId!,
       command,
       text: message.text,
@@ -156,7 +164,7 @@ export class TelegramBot {
 
 export type DispatchContext = {
   access: MemoryAccess;
-  cursor?: TelegramBotConfig['cursor'];
+  agent?: TelegramBotConfig['agent'];
   userId: number;
   command: TelegramCommand;
   text: string;
@@ -221,11 +229,11 @@ export async function dispatchCommand(
       }
     }
     case 'status': {
-      if (!ctx.cursor) {
-        return 'Cursor agent is not configured. Set CURSOR_API_KEY and re-run setup.';
+      if (!ctx.agent) {
+        return 'Coding agent is not configured. Set CURSOR_API_KEY and re-run setup.';
       }
-      const pool = ctx.cursor.status();
-      const session = ctx.cursor.sessionFor(ctx.userId);
+      const pool = ctx.agent.status();
+      const session = ctx.agent.sessionFor(ctx.userId);
       const s = session.status();
       return [
         `cwd: ${s.cwd || pool.cwd}`,
@@ -249,11 +257,11 @@ export async function dispatchCommand(
   }
 }
 
-function requireSession(ctx: DispatchContext): CursorAgentSession {
-  if (!ctx.cursor) {
-    throw new Error('Cursor agent is not configured. Set CURSOR_API_KEY and run: memgrep telegram setup');
+function requireSession(ctx: DispatchContext): AgentSession {
+  if (!ctx.agent) {
+    throw new Error('Coding agent is not configured. Set CURSOR_API_KEY and run: memgrep telegram setup');
   }
-  return ctx.cursor.sessionFor(ctx.userId);
+  return ctx.agent.sessionFor(ctx.userId);
 }
 
 async function runAgent(ctx: DispatchContext, prompt: string): Promise<string> {
