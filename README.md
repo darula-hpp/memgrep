@@ -104,7 +104,7 @@ memgrep ingest --last [n]                           # most recent n chat(s)
 memgrep ingest <file...>                            # one file (format auto-detected)
 memgrep remember "we chose X over Y because Z"      # manual note (no transcript needed)
 memgrep list [--project <p>]
-memgrep recall "<query>" [-k <n>]
+memgrep recall "<query>" [-k <n>] [--mode hybrid|vector|keyword]
 memgrep show <id>
 memgrep copy [id]
 memgrep delete <id>
@@ -330,15 +330,15 @@ The mental model: **chunks are what's searched, chats are what's returned.**
 
 1. Transcripts are parsed into clean `User:/Assistant:` dialogue. Tool output, diffs, and system context are stripped; only the conversation is kept.
 2. That text is chunked at paragraph/sentence boundaries (~1000 chars, 200 overlap), and each chunk is embedded locally into a 384-dim vector (Transformers.js, mean pooling, L2-normalized). Titles, projects, and dates are stored as plain columns, not embedded.
-3. Vectors go into an HNSW index (cosine space); chat records and chunk text live in SQLite.
-4. A query is embedded the same way, the nearest chunks are retrieved (over-fetched 4x, deduplicated to the best chunk per chat), and results come back with scores and the matching passage.
+3. Vectors go into an HNSW index (cosine space); chat records and chunk text live in SQLite. Chunk text is also indexed in an FTS5 table (BM25) kept in sync via triggers.
+4. A query runs two backends in parallel: HNSW semantic neighbors and FTS5 keyword/BM25. Each side over-fetches and dedupes to the best chunk per chat, then **reciprocal rank fusion (RRF)** merges the lists. Exact ids and error strings ride the keyword path; meaning-based queries still ride vectors.
 5. Ingestion is idempotent by content hash; `remember` and `ingest` both land in the same searchable memory.
 
 Reliability: SQLite is the source of truth and the vector index is a rebuildable cache. If a process dies mid-ingest (Ctrl-C, crash, power loss), no chats are lost: the next command that needs vectors (`recall`, `ingest`, `serve`) detects the divergence, re-embeds whatever is missing, and repairs the index, printing progress while it does. Commands that never touch vectors (`list`, `show`, `copy`, `delete`, `scan`) skip the repair and stay fast no matter what state the index is in. Deleting `index.bin` entirely just triggers a full rebuild from the database.
 
 ## Limitations, honestly
 
-- **Exact identifiers are semantic search's weak spot.** "merchant 7712" matches by the meaning of surrounding words, not the literal string. Hybrid keyword boosting is on the roadmap.
+- **Hybrid search helps exact ids, but is not magic.** FTS5/BM25 boosts literal tokens (ticket ids, `ECONNREFUSED`, merchant numbers). Very short or heavily punctuated strings can still miss if they never appear in chunk text.
 - **Kiro ingestion is partial** (user turns and titles; assistant output lives in opaque execution records). **Antigravity can't be ingested** (encrypted protobuf), though its agents can still query memory via MCP. Escape hatch for both: export or paste into a file and `memgrep ingest <file>`.
 - **`delete` is not permanent against re-ingest.** If the source transcript still exists on disk, the next scan re-adds it. Wipe the transcript too, or don't re-scan that source.
 - **One writer at a time.** Concurrent memgrep processes can race on the index file; the self-heal repairs any loss on next open, but there is no cross-process lock yet.
@@ -348,7 +348,6 @@ Reliability: SQLite is the source of truth and the vector index is a rebuildable
 
 ## Roadmap
 
-- Hybrid search (keyword/BM25 boost for exact ids and error strings)
 - Tombstones so `delete` survives re-ingest
 - More sources (Antigravity if its format opens up, Codex CLI, Windsurf)
 - Watch mode / background daemon for continuous ingest

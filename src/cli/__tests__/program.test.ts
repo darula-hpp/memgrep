@@ -59,6 +59,14 @@ describe('createProgram', () => {
     );
   });
 
+  it('exposes expected recall options', () => {
+    const program = createProgram();
+    const recall = program.commands.find((c) => c.name() === 'recall');
+    expect(recall).toBeDefined();
+    const optionFlags = recall!.options.map((o) => o.flags);
+    expect(optionFlags).toEqual(expect.arrayContaining(['-k <n>', '--mode <mode>']));
+  });
+
   it('exposes expected delete options', () => {
     const program = createProgram();
     const del = program.commands.find((c) => c.name() === 'delete');

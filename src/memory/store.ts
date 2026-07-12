@@ -12,6 +12,13 @@ import {
   extractCursorAgentIdFromSource,
   normalizeCursorAgentId,
 } from './cursor-agent-id.js';
+import {
+  ensureChunksFts,
+  FtsSearchBackend,
+  HybridSearchBackend,
+  VectorSearchBackend,
+  type SearchOptions,
+} from './search/index.js';
 
 // Both better-sqlite3 and hnswlib-node are CommonJS native addons.
 const require = createRequire(import.meta.url);
@@ -82,6 +89,8 @@ interface ChatRow {
 const DEFAULT_DIMENSIONS = 384;
 
 export class MemoryStore {
+  private readonly searcher: HybridSearchBackend;
+
   private constructor(
     private readonly dir: string,
     private readonly db: DatabaseType.Database,
@@ -91,7 +100,18 @@ export class MemoryStore {
     private nextLabel: number,
     /** When true, reconcile or rebuild runs on the first vector-touching operation. */
     private healOnFirstVectorOp: boolean,
-  ) {}
+  ) {
+    this.searcher = new HybridSearchBackend(
+      new VectorSearchBackend({
+        db: this.db,
+        hnsw: this.hnsw,
+        ensureReady: () => this.ensureVectorsReady(),
+        chunkCount: () =>
+          (this.db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }).n,
+      }),
+      new FtsSearchBackend(this.db),
+    );
+  }
 
   /**
    * Open the store. `heal: false` skips index repair and rebuild; use it for
@@ -129,6 +149,7 @@ export class MemoryStore {
       CREATE INDEX IF NOT EXISTS idx_chats_project ON chats(project);
     `);
     migrate(db);
+    ensureChunksFts(db);
 
     const storedModel = getMeta(db, 'model');
     const model = storedModel ?? DEFAULT_MODEL;
@@ -330,41 +351,35 @@ export class MemoryStore {
     return changes > 0;
   }
 
-  async search(query: string, k = 5): Promise<MemoryHit[]> {
-    const total = (this.db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }).n;
-    if (total === 0) return [];
+  /**
+   * Hybrid recall: HNSW semantic neighbors + FTS5/BM25 keyword hits, fused with
+   * reciprocal rank fusion. Exact ids and error strings benefit from the keyword
+   * path; meaning-based queries still ride the vector path.
+   *
+   * Pass `{ mode: 'vector' | 'keyword' }` to force a single backend (tests / debug).
+   */
+  async search(query: string, k = 5, options: SearchOptions = {}): Promise<MemoryHit[]> {
+    const chatCount = (this.db.prepare('SELECT COUNT(*) AS n FROM chats').get() as { n: number }).n;
+    if (chatCount === 0) return [];
 
-    const embedder = await this.ensureVectorsReady();
-    const vector = await embedder.embedOne(query);
-    const fetchK = Math.min(k * 4, total);
-    const { neighbors, distances } = this.hnsw.searchKnn(vector, fetchK);
-
-    const chunkStmt = this.db.prepare(
-      `SELECT c.text, c.chat_id, ch.title, ch.project, ch.tool, ch.created_at, length(ch.content) AS chars
-       FROM chunks c JOIN chats ch ON ch.id = c.chat_id WHERE c.label = ?`,
-    );
-    const best = new Map<number, MemoryHit>();
-    for (let i = 0; i < neighbors.length; i++) {
-      const row = chunkStmt.get(neighbors[i]) as
-        | { text: string; chat_id: number; title: string; project: string; tool: string | null; created_at: string; chars: number }
-        | undefined;
-      if (!row) continue;
-      const score = 1 - distances[i];
-      const existing = best.get(row.chat_id);
-      if (!existing || score > existing.score) {
-        best.set(row.chat_id, {
-          id: row.chat_id,
-          title: row.title,
-          project: row.project,
-          tool: row.tool ?? 'unknown',
-          createdAt: row.created_at,
-          chars: row.chars,
-          score,
-          snippet: row.text,
-        });
-      }
+    const mode = options.mode ?? 'hybrid';
+    // Keyword-only can skip loading the embedding model.
+    if (mode !== 'keyword') {
+      await this.ensureVectorsReady();
     }
-    return [...best.values()].sort((a, b) => b.score - a.score).slice(0, k);
+
+    const fetchK = Math.min(Math.max(k * 4, k), chatCount);
+    const hits = await this.searcher.searchWithMode(query, fetchK, mode);
+    return hits.slice(0, k).map((hit) => ({
+      id: hit.chatId,
+      title: hit.title,
+      project: hit.project,
+      tool: hit.tool,
+      createdAt: hit.createdAt,
+      chars: hit.chars,
+      score: hit.score,
+      snippet: hit.snippet,
+    }));
   }
 
   /** Delete every chat and reset the vector index. Returns the number of chats removed. */
