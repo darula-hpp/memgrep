@@ -13,6 +13,7 @@ import { registerShowCommand } from './commands/show.js';
 import { registerTelegramCommand } from './commands/telegram.js';
 import { registerJobsCommand } from './commands/jobs.js';
 import { registerJiraCommand } from './commands/jira.js';
+import { registerProductHuntCommand } from './commands/producthunt.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -43,6 +44,7 @@ export function createProgram(): Command {
   registerTelegramCommand(program);
   registerJobsCommand(program);
   registerJiraCommand(program);
+  registerProductHuntCommand(program);
 
   return program;
 }

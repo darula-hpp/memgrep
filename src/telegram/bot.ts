@@ -157,7 +157,7 @@ export class TelegramBot {
     });
 
     for (const part of splitForTelegram(reply)) {
-      await this.api.sendMessage(message.chat.id, part);
+      await this.api.sendFormattedMessage(message.chat.id, part);
     }
   }
 }

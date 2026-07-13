@@ -13,6 +13,13 @@ import { resolveJiraConfig } from '../jira/config.js';
 import { JiraClient } from '../jira/client.js';
 import { JiraService } from '../jira/service.js';
 import { JiraTools } from '../jira/tools.js';
+import {
+  fetchClientCredentialsToken,
+  resolveProductHuntConfig,
+} from '../producthunt/config.js';
+import { ProductHuntClient } from '../producthunt/client.js';
+import { ProductHuntService } from '../producthunt/service.js';
+import { ProductHuntTools } from '../producthunt/tools.js';
 
 function openJobsTools(storeDir?: string): { jobs: JobsTools; closeJobs: () => void } {
   const jobStore = JobStore.open(storeDir);
@@ -28,6 +35,20 @@ function openJiraTools(storeDir?: string): JiraTools | undefined {
   const config = resolveJiraConfig(process.env, storeDir);
   if (!config) return undefined;
   return new JiraTools(new JiraService(new JiraClient(config)));
+}
+
+/** Returns undefined when Product Hunt is not configured (tools omitted from MCP). */
+async function openProductHuntTools(storeDir?: string): Promise<ProductHuntTools | undefined> {
+  const config = resolveProductHuntConfig(process.env, storeDir);
+  if (!config) return undefined;
+  let token = config.token;
+  if (!token && config.apiKey && config.apiSecret) {
+    token = await fetchClientCredentialsToken(config.apiKey, config.apiSecret);
+  }
+  if (!token) return undefined;
+  return new ProductHuntTools(
+    new ProductHuntService(new ProductHuntClient({ ...config, token })),
+  );
 }
 
 export type ServeTransport = 'stdio' | 'http';
@@ -67,7 +88,8 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
   const tools = new MemoryTools(store);
   const { jobs } = openJobsTools(storeDir);
   const jira = openJiraTools(storeDir);
-  const server = createMemgrepMcpServer(tools, jobs, jira);
+  const productHunt = await openProductHuntTools(storeDir);
+  const server = createMemgrepMcpServer(tools, { jobs, jira, productHunt });
   await server.connect(new StdioServerTransport());
 }
 
@@ -91,6 +113,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   const tools = new MemoryTools(store);
   const { jobs, closeJobs } = openJobsTools(options.storeDir);
   const jira = openJiraTools(options.storeDir);
+  const productHunt = await openProductHuntTools(options.storeDir);
 
   const app = createMcpExpressApp({ host });
 
@@ -111,7 +134,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   }
 
   app.post('/mcp', async (req, res) => {
-    const server = createMemgrepMcpServer(tools, jobs, jira);
+    const server = createMemgrepMcpServer(tools, { jobs, jira, productHunt });
     try {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,

@@ -52,7 +52,7 @@ export class TelegramJobNotifier implements JobNotifier {
     const text = `${header}${body}`.trim();
     for (const userId of this.options.userIds) {
       for (const chunk of splitForTelegram(text)) {
-        await this.api.sendMessage(userId, chunk);
+        await this.api.sendFormattedMessage(userId, chunk);
       }
     }
   }
