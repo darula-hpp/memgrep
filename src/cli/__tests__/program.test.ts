@@ -13,6 +13,7 @@ describe('createProgram', () => {
       'jira',
       'jobs',
       'list',
+      'posthog',
       'producthunt',
       'recall',
       'remember',
@@ -38,6 +39,14 @@ describe('createProgram', () => {
     expect(ph).toBeDefined();
     expect(ph!.aliases()).toContain('ph');
     const sub = ph!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual(['setup', 'status']);
+  });
+
+  it('registers posthog subcommands', () => {
+    const program = createProgram();
+    const posthog = program.commands.find((c) => c.name() === 'posthog');
+    expect(posthog).toBeDefined();
+    const sub = posthog!.commands.map((c) => c.name()).sort();
     expect(sub).toEqual(['setup', 'status']);
   });
 

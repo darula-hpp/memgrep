@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **PostHog MCP tools** — optional read-only suite on the existing memgrep MCP server (`posthog_query`, `posthog_top_events`, `posthog_feature_flags`, `posthog_get_flag`). Configure with `node dist/cli.js posthog setup` (`~/.memgrep/posthog.json` or `POSTHOG_API_KEY` / `POSTHOG_PROJECT_ID` / optional `POSTHOG_HOST`); tools are omitted when unconfigured.
+
 ## [1.4.0] - 2026-07-13
 
 ### Added

@@ -14,6 +14,7 @@ import { registerTelegramCommand } from './commands/telegram.js';
 import { registerJobsCommand } from './commands/jobs.js';
 import { registerJiraCommand } from './commands/jira.js';
 import { registerProductHuntCommand } from './commands/producthunt.js';
+import { registerPostHogCommand } from './commands/posthog.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -45,6 +46,7 @@ export function createProgram(): Command {
   registerJobsCommand(program);
   registerJiraCommand(program);
   registerProductHuntCommand(program);
+  registerPostHogCommand(program);
 
   return program;
 }
