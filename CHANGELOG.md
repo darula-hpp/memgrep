@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Jira MCP tools** — optional Atlassian Cloud suite on the existing memgrep MCP server (`jira_search`, `jira_get_issue`, `jira_create_issue`, `jira_add_comment`, `jira_transition`, `jira_list_projects`). Configure with `node dist/cli.js jira setup` (`~/.memgrep/jira.json` or `JIRA_HOST` / `JIRA_EMAIL` / `JIRA_API_TOKEN`); tools are omitted when unconfigured. Cursor agents (including Telegram free text) get them via the shared HTTP MCP attachment.
 - **Hybrid recall** — FTS5/BM25 keyword search fused with HNSW vectors via reciprocal rank fusion (RRF). Exact ids and error strings no longer depend on semantic similarity alone. Strategy backends: `vector`, `keyword`, `hybrid` (default). CLI: `memgrep recall "<query>" --mode keyword`.
 
 ## [1.3.0] - 2026-07-12

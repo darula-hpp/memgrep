@@ -12,6 +12,7 @@ import { registerServeCommand } from './commands/serve.js';
 import { registerShowCommand } from './commands/show.js';
 import { registerTelegramCommand } from './commands/telegram.js';
 import { registerJobsCommand } from './commands/jobs.js';
+import { registerJiraCommand } from './commands/jira.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -41,6 +42,7 @@ export function createProgram(): Command {
   registerServeCommand(program);
   registerTelegramCommand(program);
   registerJobsCommand(program);
+  registerJiraCommand(program);
 
   return program;
 }

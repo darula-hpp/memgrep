@@ -10,6 +10,7 @@ describe('createProgram', () => {
       'delete',
       'index',
       'ingest',
+      'jira',
       'jobs',
       'list',
       'recall',
@@ -20,6 +21,14 @@ describe('createProgram', () => {
       'show',
       'telegram',
     ]);
+  });
+
+  it('registers jira subcommands', () => {
+    const program = createProgram();
+    const jira = program.commands.find((c) => c.name() === 'jira');
+    expect(jira).toBeDefined();
+    const sub = jira!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual(['setup', 'status']);
   });
 
   it('registers jobs subcommands', () => {

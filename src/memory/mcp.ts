@@ -9,6 +9,10 @@ import { createMemgrepMcpServer } from './mcp-server.js';
 import { JobStore } from '../jobs/store.js';
 import { JobsService } from '../jobs/service.js';
 import { JobsTools } from '../jobs/tools.js';
+import { resolveJiraConfig } from '../jira/config.js';
+import { JiraClient } from '../jira/client.js';
+import { JiraService } from '../jira/service.js';
+import { JiraTools } from '../jira/tools.js';
 
 function openJobsTools(storeDir?: string): { jobs: JobsTools; closeJobs: () => void } {
   const jobStore = JobStore.open(storeDir);
@@ -17,6 +21,13 @@ function openJobsTools(storeDir?: string): { jobs: JobsTools; closeJobs: () => v
     jobs,
     closeJobs: () => jobStore.close(),
   };
+}
+
+/** Returns undefined when Jira is not configured (tools omitted from MCP). */
+function openJiraTools(storeDir?: string): JiraTools | undefined {
+  const config = resolveJiraConfig(process.env, storeDir);
+  if (!config) return undefined;
+  return new JiraTools(new JiraService(new JiraClient(config)));
 }
 
 export type ServeTransport = 'stdio' | 'http';
@@ -55,7 +66,8 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
   const store = await MemoryStore.open(storeDir);
   const tools = new MemoryTools(store);
   const { jobs } = openJobsTools(storeDir);
-  const server = createMemgrepMcpServer(tools, jobs);
+  const jira = openJiraTools(storeDir);
+  const server = createMemgrepMcpServer(tools, jobs, jira);
   await server.connect(new StdioServerTransport());
 }
 
@@ -78,6 +90,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   const store = await MemoryStore.open(options.storeDir);
   const tools = new MemoryTools(store);
   const { jobs, closeJobs } = openJobsTools(options.storeDir);
+  const jira = openJiraTools(options.storeDir);
 
   const app = createMcpExpressApp({ host });
 
@@ -98,7 +111,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   }
 
   app.post('/mcp', async (req, res) => {
-    const server = createMemgrepMcpServer(tools, jobs);
+    const server = createMemgrepMcpServer(tools, jobs, jira);
     try {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
