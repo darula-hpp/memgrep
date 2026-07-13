@@ -3,13 +3,20 @@ import { z } from 'zod';
 import { MemoryTools, toMcpContent } from './tools.js';
 import type { JobsTools } from '../jobs/tools.js';
 import type { JiraTools } from '../jira/tools.js';
+import type { ProductHuntTools } from '../producthunt/tools.js';
+
+export type McpToolBundles = {
+  jobs?: JobsTools;
+  jira?: JiraTools;
+  productHunt?: ProductHuntTools;
+};
 
 export function createMemgrepMcpServer(
   tools: MemoryTools,
-  jobs?: JobsTools,
-  jira?: JiraTools,
+  bundles: McpToolBundles = {},
 ): McpServer {
   const server = new McpServer({ name: 'memgrep', version: '0.1.0' });
+  const { jobs, jira, productHunt } = bundles;
 
   server.registerTool(
     'recall',
@@ -93,6 +100,10 @@ export function createMemgrepMcpServer(
 
   if (jira) {
     registerJiraTools(server, jira);
+  }
+
+  if (productHunt) {
+    registerProductHuntTools(server, productHunt);
   }
 
   return server;
@@ -260,5 +271,55 @@ function registerJiraTools(server: McpServer, jira: JiraTools): void {
       inputSchema: {},
     },
     async () => toMcpContent(await jira.listProjects()),
+  );
+}
+
+function registerProductHuntTools(server: McpServer, ph: ProductHuntTools): void {
+  server.registerTool(
+    'ph_today',
+    {
+      description:
+        'List Product Hunt posts from today (UTC), ordered by votes. Use for daily launch digests.',
+      inputSchema: {
+        limit: z.number().int().min(1).max(50).optional().describe('Max posts (default 20)'),
+      },
+    },
+    async ({ limit }) => toMcpContent(await ph.today({ limit })),
+  );
+
+  server.registerTool(
+    'ph_search',
+    {
+      description:
+        'Search recent Product Hunt posts by name/tagline substring (official API has no full-text search).',
+      inputSchema: {
+        query: z.string().describe('Substring to match in name, tagline, or slug'),
+        limit: z.number().int().min(1).max(50).optional().describe('Max matches (default 10)'),
+      },
+    },
+    async ({ query, limit }) => toMcpContent(await ph.search({ query, limit })),
+  );
+
+  server.registerTool(
+    'ph_get_post',
+    {
+      description: 'Fetch a Product Hunt post by numeric id or slug.',
+      inputSchema: {
+        idOrSlug: z.string().describe('Post id (digits) or slug, e.g. notion'),
+      },
+    },
+    async ({ idOrSlug }) => toMcpContent(await ph.getPost({ idOrSlug })),
+  );
+
+  server.registerTool(
+    'ph_comments',
+    {
+      description: 'List comments on a Product Hunt post (by id or slug).',
+      inputSchema: {
+        idOrSlug: z.string().describe('Post id (digits) or slug'),
+        limit: z.number().int().min(1).max(50).optional().describe('Max comments (default 20)'),
+      },
+    },
+    async ({ idOrSlug, limit }) => toMcpContent(await ph.comments({ idOrSlug, limit })),
   );
 }

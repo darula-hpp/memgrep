@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-13
+
 ### Added
 
+- **Product Hunt MCP tools** — optional read-only suite on the existing memgrep MCP server (`ph_today`, `ph_search`, `ph_get_post`, `ph_comments`). Configure with `node dist/cli.js producthunt setup` (`~/.memgrep/producthunt.json` or `PRODUCTHUNT_TOKEN` / API key+secret); tools are omitted when unconfigured.
 - **Jira MCP tools** — optional Atlassian Cloud suite on the existing memgrep MCP server (`jira_search`, `jira_get_issue`, `jira_create_issue`, `jira_add_comment`, `jira_transition`, `jira_list_projects`). Configure with `node dist/cli.js jira setup` (`~/.memgrep/jira.json` or `JIRA_HOST` / `JIRA_EMAIL` / `JIRA_API_TOKEN`); tools are omitted when unconfigured. Cursor agents (including Telegram free text) get them via the shared HTTP MCP attachment.
 - **Hybrid recall** — FTS5/BM25 keyword search fused with HNSW vectors via reciprocal rank fusion (RRF). Exact ids and error strings no longer depend on semantic similarity alone. Strategy backends: `vector`, `keyword`, `hybrid` (default). CLI: `memgrep recall "<query>" --mode keyword`.
+
+### Changed
+
+- Telegram bot replies convert Markdown (`**bold**`, code, links) to Telegram HTML `parse_mode` so formatting renders instead of showing raw `**`.
 
 ## [1.3.0] - 2026-07-12
 
@@ -129,7 +136,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SQLite + HNSW index with self-healing (rebuilds the vector cache from the database after crashes or interrupted ingests).
 - Idempotent ingestion by content hash; manual notes via `remember` land in the same searchable memory.
 
-[Unreleased]: https://github.com/darula-hpp/memgrep/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/darula-hpp/memgrep/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/darula-hpp/memgrep/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/darula-hpp/memgrep/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/darula-hpp/memgrep/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/darula-hpp/memgrep/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/darula-hpp/memgrep/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/darula-hpp/memgrep/compare/v1.0.0...v1.0.1

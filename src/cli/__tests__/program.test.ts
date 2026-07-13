@@ -13,6 +13,7 @@ describe('createProgram', () => {
       'jira',
       'jobs',
       'list',
+      'producthunt',
       'recall',
       'remember',
       'scan',
@@ -28,6 +29,15 @@ describe('createProgram', () => {
     const jira = program.commands.find((c) => c.name() === 'jira');
     expect(jira).toBeDefined();
     const sub = jira!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual(['setup', 'status']);
+  });
+
+  it('registers producthunt subcommands', () => {
+    const program = createProgram();
+    const ph = program.commands.find((c) => c.name() === 'producthunt');
+    expect(ph).toBeDefined();
+    expect(ph!.aliases()).toContain('ph');
+    const sub = ph!.commands.map((c) => c.name()).sort();
     expect(sub).toEqual(['setup', 'status']);
   });
 

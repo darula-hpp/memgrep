@@ -124,19 +124,42 @@ export class TelegramApi {
     }
   }
 
-  async sendMessage(chatId: number, text: string): Promise<void> {
+  async sendMessage(
+    chatId: number,
+    text: string,
+    options: { parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2' } = {},
+  ): Promise<void> {
+    const payload: Record<string, unknown> = { chat_id: chatId, text };
+    if (options.parseMode) {
+      payload.parse_mode = options.parseMode;
+    }
     const res = await fetchWithRetry(
       this.url('sendMessage'),
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text }),
+        body: JSON.stringify(payload),
       },
       30_000,
     );
     if (!res.ok) {
       const body = await res.text();
       throw new Error(`sendMessage failed: ${res.status} ${body}`);
+    }
+  }
+
+  /** Send with Markdown→HTML formatting; falls back to plain text if Telegram rejects HTML. */
+  async sendFormattedMessage(chatId: number, text: string): Promise<void> {
+    const { formatTelegramMessage } = await import('./format.js');
+    const formatted = formatTelegramMessage(text);
+    try {
+      await this.sendMessage(chatId, formatted.text, {
+        parseMode: formatted.parseMode,
+      });
+    } catch (error) {
+      if (!formatted.parseMode) throw error;
+      // Malformed HTML / entity limits — still deliver the reply.
+      await this.sendMessage(chatId, text);
     }
   }
 
