@@ -2,10 +2,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { MemoryTools, toMcpContent } from './tools.js';
 import type { JobsTools } from '../jobs/tools.js';
+import type { JiraTools } from '../jira/tools.js';
 
 export function createMemgrepMcpServer(
   tools: MemoryTools,
   jobs?: JobsTools,
+  jira?: JiraTools,
 ): McpServer {
   const server = new McpServer({ name: 'memgrep', version: '0.1.0' });
 
@@ -87,6 +89,10 @@ export function createMemgrepMcpServer(
 
   if (jobs) {
     registerJobsTools(server, jobs);
+  }
+
+  if (jira) {
+    registerJiraTools(server, jira);
   }
 
   return server;
@@ -179,5 +185,80 @@ function registerJobsTools(server: McpServer, jobs: JobsTools): void {
       },
     },
     async ({ idOrName, limit }) => toMcpContent(jobs.logs(idOrName, limit)),
+  );
+}
+
+function registerJiraTools(server: McpServer, jira: JiraTools): void {
+  server.registerTool(
+    'jira_search',
+    {
+      description:
+        'Search Jira issues with JQL (Atlassian Cloud). Returns keys, summaries, and status.',
+      inputSchema: {
+        jql: z.string().describe('JQL query, e.g. project = ENG AND status = "In Progress"'),
+        maxResults: z.number().int().min(1).max(50).optional().describe('Max results (default 20)'),
+      },
+    },
+    async ({ jql, maxResults }) => toMcpContent(await jira.search({ jql, maxResults })),
+  );
+
+  server.registerTool(
+    'jira_get_issue',
+    {
+      description: 'Fetch a Jira issue by key (summary, status, description).',
+      inputSchema: {
+        key: z.string().describe('Issue key, e.g. ENG-123'),
+      },
+    },
+    async ({ key }) => toMcpContent(await jira.getIssue({ key })),
+  );
+
+  server.registerTool(
+    'jira_create_issue',
+    {
+      description:
+        'Create a Jira issue. Project falls back to defaultProject from memgrep jira config when omitted.',
+      inputSchema: {
+        project: z.string().optional().describe('Project key (optional if defaultProject is set)'),
+        summary: z.string().describe('Issue summary / title'),
+        description: z.string().optional().describe('Plain-text description'),
+        issueType: z.string().optional().describe('Issue type name (default Task)'),
+      },
+    },
+    async (input) => toMcpContent(await jira.createIssue(input)),
+  );
+
+  server.registerTool(
+    'jira_add_comment',
+    {
+      description: 'Add a plain-text comment to a Jira issue.',
+      inputSchema: {
+        key: z.string().describe('Issue key, e.g. ENG-123'),
+        body: z.string().describe('Comment body'),
+      },
+    },
+    async ({ key, body }) => toMcpContent(await jira.addComment({ key, body })),
+  );
+
+  server.registerTool(
+    'jira_transition',
+    {
+      description:
+        'Transition a Jira issue by transition name or id (e.g. "Done", "In Progress").',
+      inputSchema: {
+        key: z.string().describe('Issue key, e.g. ENG-123'),
+        transition: z.string().describe('Transition name or id'),
+      },
+    },
+    async ({ key, transition }) => toMcpContent(await jira.transition({ key, transition })),
+  );
+
+  server.registerTool(
+    'jira_list_projects',
+    {
+      description: 'List Jira projects visible to the configured account.',
+      inputSchema: {},
+    },
+    async () => toMcpContent(await jira.listProjects()),
   );
 }
