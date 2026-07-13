@@ -4,11 +4,13 @@ import { MemoryTools, toMcpContent } from './tools.js';
 import type { JobsTools } from '../jobs/tools.js';
 import type { JiraTools } from '../jira/tools.js';
 import type { ProductHuntTools } from '../producthunt/tools.js';
+import type { PostHogTools } from '../posthog/tools.js';
 
 export type McpToolBundles = {
   jobs?: JobsTools;
   jira?: JiraTools;
   productHunt?: ProductHuntTools;
+  posthog?: PostHogTools;
 };
 
 export function createMemgrepMcpServer(
@@ -16,7 +18,7 @@ export function createMemgrepMcpServer(
   bundles: McpToolBundles = {},
 ): McpServer {
   const server = new McpServer({ name: 'memgrep', version: '0.1.0' });
-  const { jobs, jira, productHunt } = bundles;
+  const { jobs, jira, productHunt, posthog } = bundles;
 
   server.registerTool(
     'recall',
@@ -104,6 +106,10 @@ export function createMemgrepMcpServer(
 
   if (productHunt) {
     registerProductHuntTools(server, productHunt);
+  }
+
+  if (posthog) {
+    registerPostHogTools(server, posthog);
   }
 
   return server;
@@ -321,5 +327,53 @@ function registerProductHuntTools(server: McpServer, ph: ProductHuntTools): void
       },
     },
     async ({ idOrSlug, limit }) => toMcpContent(await ph.comments({ idOrSlug, limit })),
+  );
+}
+
+function registerPostHogTools(server: McpServer, posthog: PostHogTools): void {
+  server.registerTool(
+    'posthog_query',
+    {
+      description:
+        'Run a HogQL (SQL) query against PostHog events/persons. Requires Query Read on the personal API key.',
+      inputSchema: {
+        hogql: z.string().describe('HogQL SELECT query'),
+        name: z.string().optional().describe('Optional query name for PostHog query_log'),
+      },
+    },
+    async ({ hogql, name }) => toMcpContent(await posthog.query({ hogql, name })),
+  );
+
+  server.registerTool(
+    'posthog_top_events',
+    {
+      description:
+        'List top PostHog event names by volume over the last N days (convenience HogQL; no SQL required).',
+      inputSchema: {
+        days: z.number().int().min(1).max(90).optional().describe('Lookback days (default 7)'),
+        limit: z.number().int().min(1).max(50).optional().describe('Max events (default 20)'),
+      },
+    },
+    async ({ days, limit }) => toMcpContent(await posthog.topEvents({ days, limit })),
+  );
+
+  server.registerTool(
+    'posthog_feature_flags',
+    {
+      description: 'List PostHog feature flags for the configured project.',
+      inputSchema: {},
+    },
+    async () => toMcpContent(await posthog.featureFlags()),
+  );
+
+  server.registerTool(
+    'posthog_get_flag',
+    {
+      description: 'Get a PostHog feature flag by numeric id or key.',
+      inputSchema: {
+        idOrKey: z.string().describe('Flag id (digits) or key, e.g. new-checkout'),
+      },
+    },
+    async ({ idOrKey }) => toMcpContent(await posthog.getFlag({ idOrKey })),
   );
 }
