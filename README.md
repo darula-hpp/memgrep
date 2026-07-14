@@ -110,9 +110,39 @@ memgrep copy [id]
 memgrep delete <id>
 memgrep delete --all [--yes]
 memgrep serve [--http] [--host 127.0.0.1] [--port 3921]
+memgrep cursor setup|status                         # local Cursor agent for MCP (cursor_run)
 memgrep telegram                                    # Cursor agent from your phone (+ memgrep MCP)
 memgrep jobs ...                                    # schedule playbooks (add/list/run/daemon/install)
 ```
+
+### Remote Cursor agent via ngrok (MCP)
+
+Cloud Cursor agents already call MCP tools. Expose the Mac-side agent as MCP:
+
+**One-shot (recommended):**
+
+```bash
+node dist/cli.js cursor setup   # once: CURSOR_API_KEY + workspace allowlist
+# once: reserved ngrok domain (also reads project .env / ~/.memgrep/mcp-public-url)
+export MEMGREP_NGROK_DOMAIN=your-subdomain.ngrok-free.app
+npm start                       # build, Telegram (--all), jobs, ngrok tunnel
+npm stop
+```
+
+`npm start` (`scripts/start-all.sh`) will:
+
+1. Build if `dist/` is stale  
+2. Ensure `~/.memgrep/mcp-token`  
+3. Reinstall Telegram LaunchAgent (`telegram --all`) with that token in the plist  
+4. Reinstall jobs LaunchAgent  
+5. Start ngrok on your domain (`MEMGREP_NGROK_DOMAIN`, or `~/.memgrep/mcp-public-url`)  
+6. Print status + client MCP snippet  
+
+Set the domain via env / `.env` (gitignored) or write `https://YOUR-subdomain.ngrok-free.app/mcp` to `~/.memgrep/mcp-public-url`. There is no hardcoded personal domain in the repo.
+
+Logs: `~/.memgrep/logs/telegram-launchd.log`, `jobs-launchd.log`, `~/.memgrep/tunnel/ngrok.log`.
+
+Requires the Mac to be awake. Prefer a strong `MEMGREP_MCP_TOKEN`; do not expose without auth.
 
 Memory lives in `~/.memgrep` (`MEMGREP_HOME` to override). Re-running `ingest` is idempotent: unchanged chats are skipped, grown chats are replaced. `scan` then `--pick` lets you see what's available before embedding anything.
 

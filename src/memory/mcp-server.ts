@@ -6,6 +6,8 @@ import type { JiraTools } from '../jira/tools.js';
 import type { ProductHuntTools } from '../producthunt/tools.js';
 import type { PostHogTools } from '../posthog/tools.js';
 import type { NeonTools } from '../neon/tools.js';
+import type { UpstashTools } from '../upstash/tools.js';
+import type { CursorTools } from '../cursor/tools.js';
 
 export type McpToolBundles = {
   jobs?: JobsTools;
@@ -13,6 +15,8 @@ export type McpToolBundles = {
   productHunt?: ProductHuntTools;
   posthog?: PostHogTools;
   neon?: NeonTools;
+  upstash?: UpstashTools;
+  cursor?: CursorTools;
 };
 
 export function createMemgrepMcpServer(
@@ -20,7 +24,7 @@ export function createMemgrepMcpServer(
   bundles: McpToolBundles = {},
 ): McpServer {
   const server = new McpServer({ name: 'memgrep', version: '0.1.0' });
-  const { jobs, jira, productHunt, posthog, neon } = bundles;
+  const { jobs, jira, productHunt, posthog, neon, upstash, cursor } = bundles;
 
   server.registerTool(
     'recall',
@@ -116,6 +120,14 @@ export function createMemgrepMcpServer(
 
   if (neon) {
     registerNeonTools(server, neon);
+  }
+
+  if (upstash) {
+    registerUpstashTools(server, upstash);
+  }
+
+  if (cursor) {
+    registerCursorTools(server, cursor);
   }
 
   return server;
@@ -431,5 +443,156 @@ function registerNeonTools(server: McpServer, neon: NeonTools): void {
       },
     },
     async (input) => toMcpContent(await neon.connectionUri(input)),
+  );
+}
+
+function registerUpstashTools(server: McpServer, upstash: UpstashTools): void {
+  server.registerTool(
+    'upstash_ping',
+    {
+      description: 'Ping the configured Upstash Redis REST database and report dbsize.',
+      inputSchema: {},
+    },
+    async () => toMcpContent(await upstash.ping()),
+  );
+
+  server.registerTool(
+    'upstash_get',
+    {
+      description: 'GET a string key from Upstash Redis.',
+      inputSchema: {
+        key: z.string().describe('Redis key'),
+      },
+    },
+    async ({ key }) => toMcpContent(await upstash.get({ key })),
+  );
+
+  server.registerTool(
+    'upstash_set',
+    {
+      description: 'SET a string key in Upstash Redis (optional EX seconds).',
+      inputSchema: {
+        key: z.string().describe('Redis key'),
+        value: z.string().describe('Value to store'),
+        exSeconds: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe('Optional TTL in seconds'),
+      },
+    },
+    async (input) => toMcpContent(await upstash.set(input)),
+  );
+
+  server.registerTool(
+    'upstash_del',
+    {
+      description: 'DEL one or more keys from Upstash Redis.',
+      inputSchema: {
+        keys: z.array(z.string()).min(1).describe('Keys to delete'),
+      },
+    },
+    async ({ keys }) => toMcpContent(await upstash.del({ keys })),
+  );
+
+  server.registerTool(
+    'upstash_dbsize',
+    {
+      description: 'Return the number of keys in the Upstash Redis database.',
+      inputSchema: {},
+    },
+    async () => toMcpContent(await upstash.dbsize()),
+  );
+
+  server.registerTool(
+    'upstash_ttl',
+    {
+      description: 'TTL for a key (-2 missing, -1 no expiry, else seconds).',
+      inputSchema: {
+        key: z.string().describe('Redis key'),
+      },
+    },
+    async ({ key }) => toMcpContent(await upstash.ttl({ key })),
+  );
+
+  server.registerTool(
+    'upstash_type',
+    {
+      description: 'TYPE of a Redis key (string, hash, list, set, zset, stream, none).',
+      inputSchema: {
+        key: z.string().describe('Redis key'),
+      },
+    },
+    async ({ key }) => toMcpContent(await upstash.type({ key })),
+  );
+
+  server.registerTool(
+    'upstash_scan',
+    {
+      description:
+        'SCAN keys (prefer over KEYS). Returns cursor + matching keys; pass cursor to continue.',
+      inputSchema: {
+        cursor: z.string().optional().describe('Cursor from a previous scan (default 0)'),
+        match: z.string().optional().describe('Glob pattern, e.g. session:*'),
+        count: z
+          .number()
+          .int()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe('Hint for page size (default 50)'),
+      },
+    },
+    async (input) => toMcpContent(await upstash.scan(input)),
+  );
+}
+
+function registerCursorTools(server: McpServer, cursor: CursorTools): void {
+  server.registerTool(
+    'cursor_workspaces',
+    {
+      description:
+        'List allowlisted local workspaces for the Mac-side Cursor agent (use names with cursor_run).',
+      inputSchema: {},
+    },
+    async () => toMcpContent(await cursor.workspaces()),
+  );
+
+  server.registerTool(
+    'cursor_status',
+    {
+      description:
+        'Show whether the local Cursor MCP agent host is configured (default cwd, workspace count).',
+      inputSchema: {},
+    },
+    async () => toMcpContent(await cursor.status()),
+  );
+
+  server.registerTool(
+    'cursor_run',
+    {
+      description:
+        'Run a turn on the local Cursor agent (Mac host). Work happens in an allowlisted cwd. ' +
+        'Pass agentId from a previous result to resume. Use for remote/cloud Cursor agents that ' +
+        'tunnel to this MCP via HTTP (e.g. ngrok).',
+      inputSchema: {
+        prompt: z.string().describe('Instruction for the local Cursor agent'),
+        cwd: z
+          .string()
+          .optional()
+          .describe('Workspace name, index, or allowlisted path (default: configured cwd)'),
+        model: z.string().optional().describe('Cursor model id (optional)'),
+        mode: z
+          .string()
+          .optional()
+          .describe('Conversation mode: agent | plan (ask → plan)'),
+        agentId: z
+          .string()
+          .optional()
+          .describe('Resume this Cursor agent id instead of creating a new one'),
+      },
+    },
+    async (input) => toMcpContent(await cursor.run(input)),
   );
 }

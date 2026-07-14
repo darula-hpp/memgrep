@@ -9,19 +9,34 @@ export function registerServeCommand(program: Command): void {
     .option('--host <host>', 'HTTP bind host (default 127.0.0.1)', DEFAULT_HTTP_HOST)
     .option('--port <n>', 'HTTP port', String(DEFAULT_HTTP_PORT))
     .option('--token <token>', 'Bearer token (required for non-loopback hosts; or set MEMGREP_MCP_TOKEN)')
-    .action(async (opts: { http?: boolean; host: string; port: string; token?: string }) => {
-      const { startMcpServer } = await import('../../memory/mcp.js');
-      if (opts.http) {
-        await startMcpServer({
-          transport: 'http',
-          host: opts.host,
-          port: Number(opts.port) || DEFAULT_HTTP_PORT,
-          authToken: opts.token,
-        });
-        // keep process alive
-        await new Promise(() => {});
-        return;
-      }
-      await startMcpServer({ transport: 'stdio' });
-    });
+    .option(
+      '--allowed-host <host>',
+      'Extra Host header allowed (repeatable; for ngrok). Also: MEMGREP_ALLOWED_HOSTS / mcp-public-url',
+      (value: string, prev: string[]) => [...prev, value],
+      [] as string[],
+    )
+    .action(
+      async (opts: {
+        http?: boolean;
+        host: string;
+        port: string;
+        token?: string;
+        allowedHost?: string[];
+      }) => {
+        const { startMcpServer } = await import('../../memory/mcp.js');
+        if (opts.http) {
+          await startMcpServer({
+            transport: 'http',
+            host: opts.host,
+            port: Number(opts.port) || DEFAULT_HTTP_PORT,
+            authToken: opts.token,
+            allowedHosts: opts.allowedHost,
+          });
+          // keep process alive
+          await new Promise(() => {});
+          return;
+        }
+        await startMcpServer({ transport: 'stdio' });
+      },
+    );
 }

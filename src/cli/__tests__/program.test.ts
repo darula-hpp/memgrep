@@ -7,6 +7,7 @@ describe('createProgram', () => {
     const names = program.commands.map((c) => c.name()).sort();
     expect(names).toEqual([
       'copy',
+      'cursor',
       'delete',
       'index',
       'ingest',
@@ -23,6 +24,7 @@ describe('createProgram', () => {
       'serve',
       'show',
       'telegram',
+      'upstash',
     ]);
   });
 
@@ -56,6 +58,22 @@ describe('createProgram', () => {
     const neon = program.commands.find((c) => c.name() === 'neon');
     expect(neon).toBeDefined();
     const sub = neon!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual(['setup', 'status']);
+  });
+
+  it('registers upstash subcommands', () => {
+    const program = createProgram();
+    const upstash = program.commands.find((c) => c.name() === 'upstash');
+    expect(upstash).toBeDefined();
+    const sub = upstash!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual(['setup', 'status']);
+  });
+
+  it('registers cursor subcommands', () => {
+    const program = createProgram();
+    const cursor = program.commands.find((c) => c.name() === 'cursor');
+    expect(cursor).toBeDefined();
+    const sub = cursor!.commands.map((c) => c.name()).sort();
     expect(sub).toEqual(['setup', 'status']);
   });
 

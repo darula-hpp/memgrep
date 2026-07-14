@@ -253,6 +253,20 @@ export function installLaunchdService(options: LaunchdInstallOptions): LaunchdSt
   if (process.env.MEMGREP_HOME) {
     env.MEMGREP_HOME = process.env.MEMGREP_HOME;
   }
+  // So LaunchAgent MCP HTTP (and ngrok) require the same bearer as ~/.memgrep/mcp-token.
+  if (process.env.MEMGREP_MCP_TOKEN) {
+    env.MEMGREP_MCP_TOKEN = process.env.MEMGREP_MCP_TOKEN;
+  }
+  if (process.env.MEMGREP_MCP_URL) {
+    env.MEMGREP_MCP_URL = process.env.MEMGREP_MCP_URL;
+  }
+  // Allow ngrok Host headers through MCP DNS-rebinding protection.
+  if (process.env.MEMGREP_NGROK_DOMAIN) {
+    env.MEMGREP_NGROK_DOMAIN = process.env.MEMGREP_NGROK_DOMAIN;
+  }
+  if (process.env.MEMGREP_ALLOWED_HOSTS) {
+    env.MEMGREP_ALLOWED_HOSTS = process.env.MEMGREP_ALLOWED_HOSTS;
+  }
 
   const plist = buildLaunchdPlist({
     programArgs,

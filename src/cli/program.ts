@@ -16,6 +16,8 @@ import { registerJiraCommand } from './commands/jira.js';
 import { registerProductHuntCommand } from './commands/producthunt.js';
 import { registerPostHogCommand } from './commands/posthog.js';
 import { registerNeonCommand } from './commands/neon.js';
+import { registerUpstashCommand } from './commands/upstash.js';
+import { registerCursorCommand } from './commands/cursor.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -49,6 +51,8 @@ export function createProgram(): Command {
   registerProductHuntCommand(program);
   registerPostHogCommand(program);
   registerNeonCommand(program);
+  registerUpstashCommand(program);
+  registerCursorCommand(program);
 
   return program;
 }

@@ -1,11 +1,12 @@
 import { existsSync } from 'node:fs';
-import { createCursorProvider } from '../telegram/agent/providers/cursor.js';
+import { createCursorProvider } from '../cursor/providers/cursor.js';
+import { runAgentTurn } from '../cursor/runner.js';
 import type { JobExecutor, JobExecuteContext } from './executor.js';
 import { buildPlaybookPrompt } from './executor.js';
 import type { Job, JobExecuteResult } from './types.js';
 
 /**
- * Default executor: one-shot Cursor agent via CodingAgentProvider (same adapter as Telegram).
+ * Default executor: one-shot Cursor agent via CodingAgentProvider (same adapter as Telegram/MCP).
  */
 export class CursorJobExecutor implements JobExecutor {
   readonly kind = 'cursor';
@@ -28,20 +29,15 @@ export class CursorJobExecutor implements JobExecutor {
     });
 
     try {
-      const run = await session.send(prompt);
-      const result = await run.wait();
-      if (result.status === 'error') {
-        return {
-          ok: false,
-          summary: '',
-          error: `Cursor run failed (${result.id}). Check the Cursor dashboard / local logs.`,
-        };
+      const turn = await runAgentTurn(session, prompt, {
+        providerId: this.provider.id,
+        isRetryableError: (e) => this.provider.isRetryableError?.(e) === true,
+        logPrefix: 'memgrep jobs',
+      });
+      if (!turn.ok) {
+        return { ok: false, summary: '', error: turn.text };
       }
-      if (result.status === 'cancelled') {
-        return { ok: false, summary: '', error: `Cursor run cancelled (${result.id}).` };
-      }
-      const text = result.result?.trim() || '(Cursor finished with no text reply.)';
-      return { ok: true, summary: text };
+      return { ok: true, summary: turn.text };
     } catch (error) {
       const retryable = this.provider.isRetryableError?.(error) === true;
       const message = error instanceof Error ? error.message : String(error);

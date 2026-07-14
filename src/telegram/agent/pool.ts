@@ -13,6 +13,10 @@ import {
   getPersistedAgentId,
   setPersistedAgentId,
 } from '../session-store.js';
+import {
+  AGENT_RUN_TIMEOUT_MS,
+  runAgentTurn,
+} from '../../cursor/runner.js';
 import type { CodingAgentProvider, ProviderContext, ProviderModel, ProviderSession } from './provider.js';
 import { createCursorProvider } from './providers/cursor.js';
 import type { AgentPool, AgentSession, AgentStatus } from './types.js';
@@ -23,11 +27,7 @@ import {
   type AgentRunMode,
 } from './mode.js';
 
-/** Cap hung agent runs so one stalled turn cannot block the Telegram reply queue. */
-export const AGENT_RUN_TIMEOUT_MS = 10 * 60_000;
-
-/** @deprecated Use AGENT_RUN_TIMEOUT_MS */
-export const CURSOR_RUN_TIMEOUT_MS = AGENT_RUN_TIMEOUT_MS;
+export { AGENT_RUN_TIMEOUT_MS, CURSOR_RUN_TIMEOUT_MS } from '../../cursor/runner.js';
 
 export type AgentPoolOptions = {
   apiKey: string;
@@ -267,13 +267,6 @@ class AgentPoolImpl implements AgentPool {
   }
 }
 
-class AgentRunTimeoutError extends Error {
-  constructor(ms: number) {
-    super(`Agent run timed out after ${Math.round(ms / 1000)}s`);
-    this.name = 'AgentRunTimeoutError';
-  }
-}
-
 class AgentSessionHandle implements AgentSession {
   private session: ProviderSession | undefined;
   private opening: Promise<ProviderSession> | undefined;
@@ -305,74 +298,51 @@ class AgentSessionHandle implements AgentSession {
 
   private async sendAttempt(text: string, retryOnBusy: boolean): Promise<string> {
     const session = await this.ensureSession();
-    let run: Awaited<ReturnType<ProviderSession['send']>> | undefined;
-    try {
-      run = await session.send(text, { mode: this.pool.getMode() });
-      const result = await Promise.race([run.wait(), rejectAfter(AGENT_RUN_TIMEOUT_MS)]);
-      if (result.status === 'error') {
-        const rawDetail = result.result?.trim();
-        const detail = usefulRunErrorDetail(rawDetail);
-        console.error(
-          `memgrep telegram: ${this.pool.provider.id} run ${result.id} failed` +
-            (rawDetail ? `: ${rawDetail.slice(0, 500)}` : ' (empty error detail)') +
-            (result.modelId ? ` (model ${result.modelId})` : '') +
-            (result.requestId ? ` requestId=${result.requestId}` : '') +
-            (result.durationMs !== undefined ? ` ${result.durationMs}ms` : ''),
-        );
-        // Empty / opaque failures often mean a wedged local agent — drop it so
-        // the next message starts fresh instead of resume→fail loops.
-        if (!detail) {
-          await this.reset();
-          return (
-            `Agent run failed (${result.id}).` +
-            `\nModel ${result.modelId ?? 'unknown'} returned an error with no usable message.` +
-            `\nStarted a fresh Cursor conversation automatically.` +
-            `\nSend your message again, or try /model auto if this keeps happening.`
-          );
-        }
-        return `Agent run failed (${result.id}).\n${detail}\nTry again, or /new / /model auto.`;
-      }
-      if (result.status === 'cancelled') {
-        return `Agent run cancelled (${result.id}).`;
-      }
-      if (result.result?.trim()) return result.result.trim();
-      return '(Agent finished with no text reply.)';
-    } catch (error) {
-      if (error instanceof AgentRunTimeoutError) {
-        console.error(
-          `memgrep telegram: ${error.message}` +
-            (run ? ` (run ${run.id})` : '') +
-            ` — cancelling run and starting a fresh agent`,
-        );
-        try {
-          await run?.cancel();
-        } catch {
-          // Best-effort cancel.
-        }
-        await this.reset();
+    const turn = await runAgentTurn(session, text, {
+      mode: this.pool.getMode(),
+      timeoutMs: AGENT_RUN_TIMEOUT_MS,
+      providerId: this.pool.provider.id,
+      isRetryableError: (e) => this.pool.provider.isRetryableError?.(e) === true,
+      logPrefix: 'memgrep telegram',
+    });
+
+    if (turn.ok) return turn.text;
+
+    if (turn.kind === 'timeout' || turn.opaque) {
+      await this.reset();
+      if (turn.kind === 'timeout') {
         return (
-          `${error.message}.` +
+          `${turn.text}` +
           `\nThe stuck turn was cancelled and a fresh Cursor conversation was started.` +
           `\nSend your message again.`
         );
       }
-      const message = error instanceof Error ? error.message : String(error);
-      const busy = /already has active run/i.test(message);
-      if (busy && retryOnBusy) {
-        console.error(
-          `memgrep telegram: agent still busy after force — resetting and retrying once`,
-        );
-        await this.reset();
-        return this.sendAttempt(text, false);
-      }
-      const retryable = this.pool.provider.isRetryableError?.(error) === true;
       return (
-        `Agent error: ${message}${retryable ? ' (retryable)' : ''}` +
-        (busy
-          ? `\nStarted a fresh conversation; send your message again if this persists.`
-          : '')
+        `${turn.text}` +
+        `\nStarted a fresh Cursor conversation automatically.` +
+        `\nSend your message again, or try /model auto if this keeps happening.`
       );
     }
+
+    if (turn.kind === 'busy' && retryOnBusy) {
+      console.error(
+        `memgrep telegram: agent still busy after force — resetting and retrying once`,
+      );
+      await this.reset();
+      return this.sendAttempt(text, false);
+    }
+
+    if (turn.kind === 'busy') {
+      await this.reset();
+      return (
+        `${turn.text}` +
+        `\nStarted a fresh conversation; send your message again if this persists.`
+      );
+    }
+
+    if (turn.kind === 'cancelled') return turn.text;
+
+    return `${turn.text}\nTry again, or /new / /model auto.`;
   }
 
   async reset(): Promise<void> {
@@ -521,23 +491,3 @@ function formatModelLine(model: ProviderModel, index: number, current: string): 
   return `${index}. ${model.id}${name}${mark}`;
 }
 
-/**
- * Cursor sometimes returns status=error with an empty result, or with a raw
- * conversation-turn JSON dump that isn't a user-facing error. Treat those as
- * opaque so we can auto-/new.
- */
-function usefulRunErrorDetail(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  const trimmed = raw.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.startsWith('{') && /agentConversationTurn|"type"\s*:\s*"thinkingMessage"/.test(trimmed)) {
-    return undefined;
-  }
-  return trimmed;
-}
-
-function rejectAfter(ms: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => reject(new AgentRunTimeoutError(ms)), ms);
-  });
-}
