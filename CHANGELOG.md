@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Neon MCP tools** — optional read-only suite on the existing memgrep MCP server (`neon_list_projects`, `neon_get_project`, `neon_list_branches`, `neon_connection_uri`). Configure with `node dist/cli.js neon setup` (`~/.memgrep/neon.json` or `NEON_API_KEY` / optional `NEON_PROJECT_ID`); tools are omitted when unconfigured. Supports project-scoped API keys (verify/list fall back to `GET /projects/{id}` / `subject_project_id` instead of listing all projects).
 - **PostHog MCP tools** — optional read-only suite on the existing memgrep MCP server (`posthog_query`, `posthog_top_events`, `posthog_feature_flags`, `posthog_get_flag`). Configure with `node dist/cli.js posthog setup` (`~/.memgrep/posthog.json` or `POSTHOG_API_KEY` / `POSTHOG_PROJECT_ID` / optional `POSTHOG_HOST`); tools are omitted when unconfigured.
 
 ## [1.4.0] - 2026-07-13

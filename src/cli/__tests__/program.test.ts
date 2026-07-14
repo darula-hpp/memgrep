@@ -13,6 +13,7 @@ describe('createProgram', () => {
       'jira',
       'jobs',
       'list',
+      'neon',
       'posthog',
       'producthunt',
       'recall',
@@ -47,6 +48,14 @@ describe('createProgram', () => {
     const posthog = program.commands.find((c) => c.name() === 'posthog');
     expect(posthog).toBeDefined();
     const sub = posthog!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual(['setup', 'status']);
+  });
+
+  it('registers neon subcommands', () => {
+    const program = createProgram();
+    const neon = program.commands.find((c) => c.name() === 'neon');
+    expect(neon).toBeDefined();
+    const sub = neon!.commands.map((c) => c.name()).sort();
     expect(sub).toEqual(['setup', 'status']);
   });
 

@@ -24,6 +24,10 @@ import { resolvePostHogConfig } from '../posthog/config.js';
 import { PostHogClient } from '../posthog/client.js';
 import { PostHogService } from '../posthog/service.js';
 import { PostHogTools } from '../posthog/tools.js';
+import { resolveNeonConfig } from '../neon/config.js';
+import { NeonClient } from '../neon/client.js';
+import { NeonService } from '../neon/service.js';
+import { NeonTools } from '../neon/tools.js';
 
 function openJobsTools(storeDir?: string): { jobs: JobsTools; closeJobs: () => void } {
   const jobStore = JobStore.open(storeDir);
@@ -60,6 +64,13 @@ function openPostHogTools(storeDir?: string): PostHogTools | undefined {
   const config = resolvePostHogConfig(process.env, storeDir);
   if (!config) return undefined;
   return new PostHogTools(new PostHogService(new PostHogClient(config)));
+}
+
+/** Returns undefined when Neon is not configured (tools omitted from MCP). */
+function openNeonTools(storeDir?: string): NeonTools | undefined {
+  const config = resolveNeonConfig(process.env, storeDir);
+  if (!config) return undefined;
+  return new NeonTools(new NeonService(new NeonClient(config)));
 }
 
 export type ServeTransport = 'stdio' | 'http';
@@ -101,7 +112,8 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
   const jira = openJiraTools(storeDir);
   const productHunt = await openProductHuntTools(storeDir);
   const posthog = openPostHogTools(storeDir);
-  const server = createMemgrepMcpServer(tools, { jobs, jira, productHunt, posthog });
+  const neon = openNeonTools(storeDir);
+  const server = createMemgrepMcpServer(tools, { jobs, jira, productHunt, posthog, neon });
   await server.connect(new StdioServerTransport());
 }
 
@@ -127,6 +139,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   const jira = openJiraTools(options.storeDir);
   const productHunt = await openProductHuntTools(options.storeDir);
   const posthog = openPostHogTools(options.storeDir);
+  const neon = openNeonTools(options.storeDir);
 
   const app = createMcpExpressApp({ host });
 
@@ -147,7 +160,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   }
 
   app.post('/mcp', async (req, res) => {
-    const server = createMemgrepMcpServer(tools, { jobs, jira, productHunt, posthog });
+    const server = createMemgrepMcpServer(tools, { jobs, jira, productHunt, posthog, neon });
     try {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
