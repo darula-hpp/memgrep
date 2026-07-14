@@ -5,12 +5,14 @@ import type { JobsTools } from '../jobs/tools.js';
 import type { JiraTools } from '../jira/tools.js';
 import type { ProductHuntTools } from '../producthunt/tools.js';
 import type { PostHogTools } from '../posthog/tools.js';
+import type { NeonTools } from '../neon/tools.js';
 
 export type McpToolBundles = {
   jobs?: JobsTools;
   jira?: JiraTools;
   productHunt?: ProductHuntTools;
   posthog?: PostHogTools;
+  neon?: NeonTools;
 };
 
 export function createMemgrepMcpServer(
@@ -18,7 +20,7 @@ export function createMemgrepMcpServer(
   bundles: McpToolBundles = {},
 ): McpServer {
   const server = new McpServer({ name: 'memgrep', version: '0.1.0' });
-  const { jobs, jira, productHunt, posthog } = bundles;
+  const { jobs, jira, productHunt, posthog, neon } = bundles;
 
   server.registerTool(
     'recall',
@@ -110,6 +112,10 @@ export function createMemgrepMcpServer(
 
   if (posthog) {
     registerPostHogTools(server, posthog);
+  }
+
+  if (neon) {
+    registerNeonTools(server, neon);
   }
 
   return server;
@@ -375,5 +381,55 @@ function registerPostHogTools(server: McpServer, posthog: PostHogTools): void {
       },
     },
     async ({ idOrKey }) => toMcpContent(await posthog.getFlag({ idOrKey })),
+  );
+}
+
+function registerNeonTools(server: McpServer, neon: NeonTools): void {
+  server.registerTool(
+    'neon_list_projects',
+    {
+      description: 'List Neon projects visible to the configured API key.',
+      inputSchema: {},
+    },
+    async () => toMcpContent(await neon.listProjects()),
+  );
+
+  server.registerTool(
+    'neon_get_project',
+    {
+      description:
+        'Get a Neon project by id (falls back to defaultProjectId / NEON_PROJECT_ID when omitted).',
+      inputSchema: {
+        projectId: z.string().optional().describe('Neon project id'),
+      },
+    },
+    async ({ projectId }) => toMcpContent(await neon.getProject({ projectId })),
+  );
+
+  server.registerTool(
+    'neon_list_branches',
+    {
+      description:
+        'List branches for a Neon project (falls back to defaultProjectId when projectId omitted).',
+      inputSchema: {
+        projectId: z.string().optional().describe('Neon project id'),
+      },
+    },
+    async ({ projectId }) => toMcpContent(await neon.listBranches({ projectId })),
+  );
+
+  server.registerTool(
+    'neon_connection_uri',
+    {
+      description:
+        'Fetch a Postgres connection URI for a Neon project/branch (password included; also shows a redacted form).',
+      inputSchema: {
+        projectId: z.string().optional().describe('Neon project id'),
+        branchId: z.string().optional().describe('Branch id (optional)'),
+        databaseName: z.string().optional().describe('Database name (optional)'),
+        roleName: z.string().optional().describe('Role name (optional)'),
+      },
+    },
+    async (input) => toMcpContent(await neon.connectionUri(input)),
   );
 }
