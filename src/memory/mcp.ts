@@ -1,9 +1,11 @@
 import { createServer } from 'node:http';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
-import { MemoryStore } from './store.js';
+import { MemoryStore, defaultHome } from './store.js';
 import { MemoryTools } from './tools.js';
 import { createMemgrepMcpServer } from './mcp-server.js';
 import { JobStore } from '../jobs/store.js';
@@ -28,6 +30,13 @@ import { resolveNeonConfig } from '../neon/config.js';
 import { NeonClient } from '../neon/client.js';
 import { NeonService } from '../neon/service.js';
 import { NeonTools } from '../neon/tools.js';
+import { resolveUpstashConfig } from '../upstash/config.js';
+import { UpstashClient } from '../upstash/client.js';
+import { UpstashService } from '../upstash/service.js';
+import { UpstashTools } from '../upstash/tools.js';
+import { resolveCursorConfig } from '../cursor/config.js';
+import { CursorAgentService } from '../cursor/service.js';
+import { CursorTools } from '../cursor/tools.js';
 
 function openJobsTools(storeDir?: string): { jobs: JobsTools; closeJobs: () => void } {
   const jobStore = JobStore.open(storeDir);
@@ -73,6 +82,20 @@ function openNeonTools(storeDir?: string): NeonTools | undefined {
   return new NeonTools(new NeonService(new NeonClient(config)));
 }
 
+/** Returns undefined when Upstash is not configured (tools omitted from MCP). */
+function openUpstashTools(storeDir?: string): UpstashTools | undefined {
+  const config = resolveUpstashConfig(process.env, storeDir);
+  if (!config) return undefined;
+  return new UpstashTools(new UpstashService(new UpstashClient(config)));
+}
+
+/** Returns undefined when Cursor API key is not configured (tools omitted from MCP). */
+function openCursorTools(storeDir?: string): CursorTools | undefined {
+  const config = resolveCursorConfig(process.env, storeDir);
+  if (!config) return undefined;
+  return new CursorTools(new CursorAgentService(config));
+}
+
 export type ServeTransport = 'stdio' | 'http';
 
 export type ServeOptions = {
@@ -82,6 +105,11 @@ export type ServeOptions = {
   port?: number;
   /** Required when host is not loopback. */
   authToken?: string;
+  /**
+   * Extra Hostnames allowed by MCP DNS-rebinding protection (e.g. ngrok domain).
+   * Always merged with localhost / 127.0.0.1 / ::1.
+   */
+  allowedHosts?: string[];
 };
 
 export const DEFAULT_HTTP_HOST = '127.0.0.1';
@@ -89,6 +117,57 @@ export const DEFAULT_HTTP_PORT = 3921;
 
 export function isLoopbackHost(host: string): boolean {
   return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
+/** Hostname from https://host/mcp or bare host. */
+export function hostnameFromUrlOrHost(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  try {
+    if (/^https?:\/\//i.test(trimmed)) {
+      return new URL(trimmed).hostname || undefined;
+    }
+    // Strip path/port if someone passed host:port/path
+    return new URL(`http://${trimmed}`).hostname || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Hostnames permitted behind tunnels (ngrok). Defaults include loopback plus
+ * MEMGREP_ALLOWED_HOSTS, MEMGREP_NGROK_DOMAIN, and ~/.memgrep/mcp-public-url.
+ */
+export function resolveAllowedHosts(
+  env: NodeJS.ProcessEnv = process.env,
+  home = defaultHome(),
+  extra: string[] = [],
+): string[] {
+  const hosts = new Set<string>(['127.0.0.1', 'localhost', '::1', '[::1]']);
+
+  for (const part of (env.MEMGREP_ALLOWED_HOSTS ?? '').split(',')) {
+    const h = hostnameFromUrlOrHost(part);
+    if (h) hosts.add(h);
+  }
+  const ngrok = hostnameFromUrlOrHost(env.MEMGREP_NGROK_DOMAIN ?? '');
+  if (ngrok) hosts.add(ngrok);
+
+  const urlFile = path.join(home, 'mcp-public-url');
+  if (existsSync(urlFile)) {
+    try {
+      const h = hostnameFromUrlOrHost(readFileSync(urlFile, 'utf8'));
+      if (h) hosts.add(h);
+    } catch {
+      // ignore
+    }
+  }
+
+  for (const e of extra) {
+    const h = hostnameFromUrlOrHost(e);
+    if (h) hosts.add(h);
+  }
+
+  return [...hosts];
 }
 
 export async function startMcpServer(options: ServeOptions | string = {}): Promise<void | HttpMcpHandle> {
@@ -113,7 +192,17 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
   const productHunt = await openProductHuntTools(storeDir);
   const posthog = openPostHogTools(storeDir);
   const neon = openNeonTools(storeDir);
-  const server = createMemgrepMcpServer(tools, { jobs, jira, productHunt, posthog, neon });
+  const upstash = openUpstashTools(storeDir);
+  const cursor = openCursorTools(storeDir);
+  const server = createMemgrepMcpServer(tools, {
+    jobs,
+    jira,
+    productHunt,
+    posthog,
+    neon,
+    upstash,
+    cursor,
+  });
   await server.connect(new StdioServerTransport());
 }
 
@@ -140,8 +229,12 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   const productHunt = await openProductHuntTools(options.storeDir);
   const posthog = openPostHogTools(options.storeDir);
   const neon = openNeonTools(options.storeDir);
+  const upstash = openUpstashTools(options.storeDir);
+  const cursor = openCursorTools(options.storeDir);
 
-  const app = createMcpExpressApp({ host });
+  // Loopback bind + ngrok Host header: allow tunnel hostname explicitly.
+  const allowedHosts = resolveAllowedHosts(process.env, options.storeDir, options.allowedHosts);
+  const app = createMcpExpressApp({ host, allowedHosts });
 
   if (authToken) {
     app.use('/mcp', (req, res, next) => {
@@ -160,7 +253,15 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   }
 
   app.post('/mcp', async (req, res) => {
-    const server = createMemgrepMcpServer(tools, { jobs, jira, productHunt, posthog, neon });
+    const server = createMemgrepMcpServer(tools, {
+      jobs,
+      jira,
+      productHunt,
+      posthog,
+      neon,
+      upstash,
+      cursor,
+    });
     try {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,

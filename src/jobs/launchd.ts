@@ -128,6 +128,12 @@ export function installJobsLaunchdService(options: JobsLaunchdInstallOptions = {
   if (process.env.MEMGREP_HOME) {
     env.MEMGREP_HOME = process.env.MEMGREP_HOME;
   }
+  if (process.env.MEMGREP_MCP_TOKEN) {
+    env.MEMGREP_MCP_TOKEN = process.env.MEMGREP_MCP_TOKEN;
+  }
+  if (process.env.MEMGREP_MCP_URL) {
+    env.MEMGREP_MCP_URL = process.env.MEMGREP_MCP_URL;
+  }
 
   const plist = buildLaunchdPlist({
     label: JOBS_LAUNCHD_LABEL,
