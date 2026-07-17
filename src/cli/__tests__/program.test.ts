@@ -9,6 +9,7 @@ describe('createProgram', () => {
       'copy',
       'cursor',
       'delete',
+      'gcloud',
       'index',
       'ingest',
       'jira',
@@ -66,6 +67,14 @@ describe('createProgram', () => {
     const upstash = program.commands.find((c) => c.name() === 'upstash');
     expect(upstash).toBeDefined();
     const sub = upstash!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual(['setup', 'status']);
+  });
+
+  it('registers gcloud subcommands', () => {
+    const program = createProgram();
+    const gcloud = program.commands.find((c) => c.name() === 'gcloud');
+    expect(gcloud).toBeDefined();
+    const sub = gcloud!.commands.map((c) => c.name()).sort();
     expect(sub).toEqual(['setup', 'status']);
   });
 

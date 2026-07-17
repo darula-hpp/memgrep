@@ -7,6 +7,7 @@ import type { ProductHuntTools } from '../producthunt/tools.js';
 import type { PostHogTools } from '../posthog/tools.js';
 import type { NeonTools } from '../neon/tools.js';
 import type { UpstashTools } from '../upstash/tools.js';
+import type { GcloudTools } from '../gcloud/tools.js';
 import type { CursorTools } from '../cursor/tools.js';
 
 export type McpToolBundles = {
@@ -16,6 +17,7 @@ export type McpToolBundles = {
   posthog?: PostHogTools;
   neon?: NeonTools;
   upstash?: UpstashTools;
+  gcloud?: GcloudTools;
   cursor?: CursorTools;
 };
 
@@ -24,7 +26,7 @@ export function createMemgrepMcpServer(
   bundles: McpToolBundles = {},
 ): McpServer {
   const server = new McpServer({ name: 'memgrep', version: '0.1.0' });
-  const { jobs, jira, productHunt, posthog, neon, upstash, cursor } = bundles;
+  const { jobs, jira, productHunt, posthog, neon, upstash, gcloud, cursor } = bundles;
 
   server.registerTool(
     'recall',
@@ -124,6 +126,10 @@ export function createMemgrepMcpServer(
 
   if (upstash) {
     registerUpstashTools(server, upstash);
+  }
+
+  if (gcloud) {
+    registerGcloudTools(server, gcloud);
   }
 
   if (cursor) {
@@ -443,6 +449,66 @@ function registerNeonTools(server: McpServer, neon: NeonTools): void {
       },
     },
     async (input) => toMcpContent(await neon.connectionUri(input)),
+  );
+}
+
+function registerGcloudTools(server: McpServer, gcloud: GcloudTools): void {
+  server.registerTool(
+    'gcloud_list_projects',
+    {
+      description: 'List Google Cloud projects visible to the configured credentials (ADC or SA).',
+      inputSchema: {},
+    },
+    async () => toMcpContent(await gcloud.listProjects()),
+  );
+
+  server.registerTool(
+    'gcloud_logs_query',
+    {
+      description:
+        'Query Cloud Logging entries (newest first). Optional Logging filter and pageSize; defaults to configured projectId.',
+      inputSchema: {
+        filter: z
+          .string()
+          .optional()
+          .describe('Cloud Logging filter (e.g. severity>=ERROR OR resource.type="gce_instance")'),
+        pageSize: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe('Max entries to return (default 20)'),
+        projectId: z.string().optional().describe('Override GCP project id'),
+      },
+    },
+    async (input) => toMcpContent(await gcloud.logsQuery(input)),
+  );
+
+  server.registerTool(
+    'gcloud_list_instances',
+    {
+      description:
+        'List Compute Engine VM instances. Optional zone; uses defaultZone from config when set, otherwise aggregated list across zones.',
+      inputSchema: {
+        zone: z.string().optional().describe('GCE zone (e.g. africa-south1-a)'),
+        projectId: z.string().optional().describe('Override GCP project id'),
+      },
+    },
+    async (input) => toMcpContent(await gcloud.listInstances(input)),
+  );
+
+  server.registerTool(
+    'gcloud_get_instance',
+    {
+      description: 'Describe a single Compute Engine VM instance by zone and name (read-only).',
+      inputSchema: {
+        zone: z.string().describe('GCE zone (e.g. africa-south1-a)'),
+        name: z.string().describe('Instance name'),
+        projectId: z.string().optional().describe('Override GCP project id'),
+      },
+    },
+    async (input) => toMcpContent(await gcloud.getInstance(input)),
   );
 }
 

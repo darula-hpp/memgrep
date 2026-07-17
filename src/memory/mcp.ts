@@ -34,6 +34,10 @@ import { resolveUpstashConfig } from '../upstash/config.js';
 import { UpstashClient } from '../upstash/client.js';
 import { UpstashService } from '../upstash/service.js';
 import { UpstashTools } from '../upstash/tools.js';
+import { resolveGcloudConfig } from '../gcloud/config.js';
+import { GcloudClient } from '../gcloud/client.js';
+import { GcloudService } from '../gcloud/service.js';
+import { GcloudTools } from '../gcloud/tools.js';
 import { resolveCursorConfig } from '../cursor/config.js';
 import { CursorAgentService } from '../cursor/service.js';
 import { CursorTools } from '../cursor/tools.js';
@@ -87,6 +91,13 @@ function openUpstashTools(storeDir?: string): UpstashTools | undefined {
   const config = resolveUpstashConfig(process.env, storeDir);
   if (!config) return undefined;
   return new UpstashTools(new UpstashService(new UpstashClient(config)));
+}
+
+/** Returns undefined when Google Cloud is not configured (tools omitted from MCP). */
+function openGcloudTools(storeDir?: string): GcloudTools | undefined {
+  const config = resolveGcloudConfig(process.env, storeDir);
+  if (!config) return undefined;
+  return new GcloudTools(new GcloudService(new GcloudClient(config)));
 }
 
 /** Returns undefined when Cursor API key is not configured (tools omitted from MCP). */
@@ -201,6 +212,7 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
   const posthog = openPostHogTools(storeDir);
   const neon = openNeonTools(storeDir);
   const upstash = openUpstashTools(storeDir);
+  const gcloud = openGcloudTools(storeDir);
   const cursor = openCursorTools(storeDir);
   const server = createMemgrepMcpServer(tools, {
     jobs,
@@ -209,6 +221,7 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
     posthog,
     neon,
     upstash,
+    gcloud,
     cursor,
   });
   await server.connect(new StdioServerTransport());
@@ -238,6 +251,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   const posthog = openPostHogTools(options.storeDir);
   const neon = openNeonTools(options.storeDir);
   const upstash = openUpstashTools(options.storeDir);
+  const gcloud = openGcloudTools(options.storeDir);
   const cursor = openCursorTools(options.storeDir);
 
   // Loopback bind + public tunnel Host header: allow configured tunnel hostname.
@@ -268,6 +282,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
       posthog,
       neon,
       upstash,
+      gcloud,
       cursor,
     });
     try {
