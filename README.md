@@ -111,6 +111,7 @@ memgrep delete <id>
 memgrep delete --all [--yes]
 memgrep serve [--http] [--host 127.0.0.1] [--port 3921]
 memgrep cursor setup|status                         # local Cursor agent for MCP (cursor_run)
+memgrep gcloud setup|status                         # Google Cloud logs + GCE (optional MCP)
 memgrep telegram                                    # Cursor agent from your phone (+ memgrep MCP)
 memgrep jobs ...                                    # schedule playbooks (add/list/run/daemon/install)
 ```

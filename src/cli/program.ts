@@ -17,6 +17,7 @@ import { registerProductHuntCommand } from './commands/producthunt.js';
 import { registerPostHogCommand } from './commands/posthog.js';
 import { registerNeonCommand } from './commands/neon.js';
 import { registerUpstashCommand } from './commands/upstash.js';
+import { registerGcloudCommand } from './commands/gcloud.js';
 import { registerCursorCommand } from './commands/cursor.js';
 
 export function createProgram(): Command {
@@ -52,6 +53,7 @@ export function createProgram(): Command {
   registerPostHogCommand(program);
   registerNeonCommand(program);
   registerUpstashCommand(program);
+  registerGcloudCommand(program);
   registerCursorCommand(program);
 
   return program;
