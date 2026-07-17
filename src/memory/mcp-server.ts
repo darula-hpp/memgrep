@@ -7,7 +7,9 @@ import type { ProductHuntTools } from '../producthunt/tools.js';
 import type { PostHogTools } from '../posthog/tools.js';
 import type { NeonTools } from '../neon/tools.js';
 import type { UpstashTools } from '../upstash/tools.js';
+import type { GcloudTools } from '../gcloud/tools.js';
 import type { CursorTools } from '../cursor/tools.js';
+import type { LoopTools } from '../loop/tools.js';
 
 export type McpToolBundles = {
   jobs?: JobsTools;
@@ -16,7 +18,9 @@ export type McpToolBundles = {
   posthog?: PostHogTools;
   neon?: NeonTools;
   upstash?: UpstashTools;
+  gcloud?: GcloudTools;
   cursor?: CursorTools;
+  loop?: LoopTools;
 };
 
 export function createMemgrepMcpServer(
@@ -24,7 +28,7 @@ export function createMemgrepMcpServer(
   bundles: McpToolBundles = {},
 ): McpServer {
   const server = new McpServer({ name: 'memgrep', version: '0.1.0' });
-  const { jobs, jira, productHunt, posthog, neon, upstash, cursor } = bundles;
+  const { jobs, jira, productHunt, posthog, neon, upstash, gcloud, cursor, loop } = bundles;
 
   server.registerTool(
     'recall',
@@ -126,8 +130,16 @@ export function createMemgrepMcpServer(
     registerUpstashTools(server, upstash);
   }
 
+  if (gcloud) {
+    registerGcloudTools(server, gcloud);
+  }
+
   if (cursor) {
     registerCursorTools(server, cursor);
+  }
+
+  if (loop) {
+    registerLoopTools(server, loop);
   }
 
   return server;
@@ -446,6 +458,66 @@ function registerNeonTools(server: McpServer, neon: NeonTools): void {
   );
 }
 
+function registerGcloudTools(server: McpServer, gcloud: GcloudTools): void {
+  server.registerTool(
+    'gcloud_list_projects',
+    {
+      description: 'List Google Cloud projects visible to the configured credentials (ADC or SA).',
+      inputSchema: {},
+    },
+    async () => toMcpContent(await gcloud.listProjects()),
+  );
+
+  server.registerTool(
+    'gcloud_logs_query',
+    {
+      description:
+        'Query Cloud Logging entries (newest first). Optional Logging filter and pageSize; defaults to configured projectId.',
+      inputSchema: {
+        filter: z
+          .string()
+          .optional()
+          .describe('Cloud Logging filter (e.g. severity>=ERROR OR resource.type="gce_instance")'),
+        pageSize: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe('Max entries to return (default 20)'),
+        projectId: z.string().optional().describe('Override GCP project id'),
+      },
+    },
+    async (input) => toMcpContent(await gcloud.logsQuery(input)),
+  );
+
+  server.registerTool(
+    'gcloud_list_instances',
+    {
+      description:
+        'List Compute Engine VM instances. Optional zone; uses defaultZone from config when set, otherwise aggregated list across zones.',
+      inputSchema: {
+        zone: z.string().optional().describe('GCE zone (e.g. africa-south1-a)'),
+        projectId: z.string().optional().describe('Override GCP project id'),
+      },
+    },
+    async (input) => toMcpContent(await gcloud.listInstances(input)),
+  );
+
+  server.registerTool(
+    'gcloud_get_instance',
+    {
+      description: 'Describe a single Compute Engine VM instance by zone and name (read-only).',
+      inputSchema: {
+        zone: z.string().describe('GCE zone (e.g. africa-south1-a)'),
+        name: z.string().describe('Instance name'),
+        projectId: z.string().optional().describe('Override GCP project id'),
+      },
+    },
+    async (input) => toMcpContent(await gcloud.getInstance(input)),
+  );
+}
+
 function registerUpstashTools(server: McpServer, upstash: UpstashTools): void {
   server.registerTool(
     'upstash_ping',
@@ -575,7 +647,7 @@ function registerCursorTools(server: McpServer, cursor: CursorTools): void {
       description:
         'Run a turn on the local Cursor agent (Mac host). Work happens in an allowlisted cwd. ' +
         'Pass agentId from a previous result to resume. Use for remote/cloud Cursor agents that ' +
-        'tunnel to this MCP via HTTP (e.g. ngrok).',
+        'tunnel to this MCP via HTTP (any reverse tunnel to loopback).',
       inputSchema: {
         prompt: z.string().describe('Instruction for the local Cursor agent'),
         cwd: z
@@ -594,5 +666,165 @@ function registerCursorTools(server: McpServer, cursor: CursorTools): void {
       },
     },
     async (input) => toMcpContent(await cursor.run(input)),
+  );
+}
+
+const loopArtifactSchema = z.object({
+  id: z.string().describe('Stable id'),
+  kind: z.enum(['path', 'url', 'text', 'builtin']).describe('Artifact kind'),
+  value: z.string().describe('Path, URL, text, or builtin name (github_pr)'),
+  label: z.string().optional().describe('Short label'),
+  description: z.string().optional().describe('What the agent should do with it'),
+});
+
+function registerLoopTools(server: McpServer, loop: LoopTools): void {
+  const profileField = z
+    .string()
+    .optional()
+    .describe(
+      'Loop project profile under ~/.memgrep/loops/<name>/ (default: active / MEMGREP_LOOP_PROFILE)',
+    );
+
+  server.registerTool(
+    'loop_status',
+    {
+      description:
+        'Show loop configuration for the active (or selected) project profile: cwd, defaults, ' +
+        'manifest paths, and whether Cursor/Jira are ready. Jira is optional.',
+      inputSchema: {},
+    },
+    async () => toMcpContent(await loop.status()),
+  );
+
+  server.registerTool(
+    'loop_run',
+    {
+      description:
+        'Start the coding loop in the background (does not wait). Requires free-text task. ' +
+        'Optional profile selects ~/.memgrep/loops/<profile>/ defaults. Optional jiraKey enriches context. ' +
+        'Optional task-specific inputs/exits/actions merge over defaults. ' +
+        'After PASS, runs exit actions (builtin github_pr then agent actions). Telegram notifies on complete.',
+      inputSchema: {
+        task: z.string().describe('Free-text task description (required)'),
+        profile: profileField,
+        jiraKey: z
+          .string()
+          .optional()
+          .describe('Optional Jira issue key to fetch and attach (requires Jira config)'),
+        inputs: z.array(loopArtifactSchema).optional().describe('Task-specific inputs'),
+        exits: z
+          .array(loopArtifactSchema)
+          .optional()
+          .describe('Task-specific exit conditions'),
+        actions: z.array(loopArtifactSchema).optional().describe('Task-specific exit actions'),
+        cwd: z
+          .string()
+          .optional()
+          .describe('Workspace name/path override (must be Cursor-allowlisted)'),
+        agentId: z.string().optional().describe('Resume this Cursor agent id'),
+        maxIterations: z
+          .number()
+          .int()
+          .min(1)
+          .max(20)
+          .optional()
+          .describe('Max implement/verify iterations'),
+        query: z.string().optional().describe('Optional memgrep recall query'),
+        telegramProfile: z
+          .string()
+          .optional()
+          .describe('Telegram profile for completion notify'),
+      },
+    },
+    async (input) => toMcpContent(await loop.run(input)),
+  );
+
+  server.registerTool(
+    'loop_run_status',
+    {
+      description:
+        'On-demand snapshot of a background loop run. Prefer Telegram notify over busy-polling.',
+      inputSchema: {
+        runId: z.string().optional().describe('Run id returned by loop_run'),
+        task: z.string().optional().describe('Task text or jira key — latest matching run'),
+        profile: profileField,
+      },
+    },
+    async (input) => toMcpContent(await loop.runStatus(input)),
+  );
+
+  server.registerTool(
+    'loop_upsert_input',
+    {
+      description: 'Add or update a default loop input and regenerate inputs.manifest.md.',
+      inputSchema: {
+        id: z.string(),
+        kind: z.enum(['path', 'url', 'text', 'builtin']),
+        value: z.string(),
+        label: z.string().optional(),
+        description: z.string().optional(),
+        profile: profileField,
+      },
+    },
+    async (input) => toMcpContent(await loop.upsertInput(input)),
+  );
+
+  server.registerTool(
+    'loop_remove_input',
+    {
+      description: 'Remove a default loop input by id and regenerate the manifest.',
+      inputSchema: { id: z.string(), profile: profileField },
+    },
+    async (input) => toMcpContent(await loop.removeInput(input)),
+  );
+
+  server.registerTool(
+    'loop_upsert_exit',
+    {
+      description: 'Add or update a default exit condition and regenerate exits.manifest.md.',
+      inputSchema: {
+        id: z.string(),
+        kind: z.enum(['path', 'url', 'text', 'builtin']),
+        value: z.string(),
+        label: z.string().optional(),
+        description: z.string().optional(),
+        profile: profileField,
+      },
+    },
+    async (input) => toMcpContent(await loop.upsertExit(input)),
+  );
+
+  server.registerTool(
+    'loop_remove_exit',
+    {
+      description: 'Remove a default exit condition by id.',
+      inputSchema: { id: z.string(), profile: profileField },
+    },
+    async (input) => toMcpContent(await loop.removeExit(input)),
+  );
+
+  server.registerTool(
+    'loop_upsert_action',
+    {
+      description: 'Add or update a default exit action and regenerate actions.manifest.md.',
+      inputSchema: {
+        id: z.string(),
+        kind: z.enum(['path', 'url', 'text', 'builtin']),
+        value: z.string(),
+        label: z.string().optional(),
+        description: z.string().optional(),
+        profile: profileField,
+      },
+    },
+    async (input) => toMcpContent(await loop.upsertAction(input)),
+  );
+
+  server.registerTool(
+    'loop_remove_action',
+    {
+      description: 'Remove a default exit action by id.',
+      inputSchema: { id: z.string(), profile: profileField },
+    },
+    async (input) => toMcpContent(await loop.removeAction(input)),
   );
 }

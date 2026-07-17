@@ -1,7 +1,7 @@
 {
   "name": "memgrep",
   "version": "1.4.0",
-  "description": "Telegram → Cursor agent + searchable local memory for playbooks you reuse (and schedule with memgrep jobs).",
+  "description": "Local agent memory, coding loop, Cursor from Telegram, scheduled playbooks, and MCP tools.",
   "keywords": [
     "semantic-search",
     "vector-search",
@@ -57,9 +57,7 @@
     "test": "vitest run",
     "prepublishOnly": "npm run build",
     "start": "bash scripts/start-all.sh",
-    "stop": "bash scripts/stop-all.sh",
-    "tunnel:start": "bash scripts/start-all.sh",
-    "tunnel:stop": "bash scripts/stop-all.sh"
+    "stop": "bash scripts/stop-all.sh"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.18",
@@ -70,6 +68,7 @@
     "cron-parser": "^5.6.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "google-auth-library": "^10.9.0",
     "hnswlib-node": "^3.0.0",
     "picocolors": "^1.1.1",
     "undici": "^6.27.0",

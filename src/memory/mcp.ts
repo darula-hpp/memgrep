@@ -34,9 +34,16 @@ import { resolveUpstashConfig } from '../upstash/config.js';
 import { UpstashClient } from '../upstash/client.js';
 import { UpstashService } from '../upstash/service.js';
 import { UpstashTools } from '../upstash/tools.js';
+import { resolveGcloudConfig } from '../gcloud/config.js';
+import { GcloudClient } from '../gcloud/client.js';
+import { GcloudService } from '../gcloud/service.js';
+import { GcloudTools } from '../gcloud/tools.js';
 import { resolveCursorConfig } from '../cursor/config.js';
 import { CursorAgentService } from '../cursor/service.js';
 import { CursorTools } from '../cursor/tools.js';
+import { resolveLoopConfig } from '../loop/config.js';
+import { LoopService } from '../loop/service.js';
+import { LoopTools } from '../loop/tools.js';
 
 function openJobsTools(storeDir?: string): { jobs: JobsTools; closeJobs: () => void } {
   const jobStore = JobStore.open(storeDir);
@@ -89,6 +96,13 @@ function openUpstashTools(storeDir?: string): UpstashTools | undefined {
   return new UpstashTools(new UpstashService(new UpstashClient(config)));
 }
 
+/** Returns undefined when Google Cloud is not configured (tools omitted from MCP). */
+function openGcloudTools(storeDir?: string): GcloudTools | undefined {
+  const config = resolveGcloudConfig(process.env, storeDir);
+  if (!config) return undefined;
+  return new GcloudTools(new GcloudService(new GcloudClient(config)));
+}
+
 /** Returns undefined when Cursor API key is not configured (tools omitted from MCP). */
 function openCursorTools(storeDir?: string): CursorTools | undefined {
   const config = resolveCursorConfig(process.env, storeDir);
@@ -96,6 +110,26 @@ function openCursorTools(storeDir?: string): CursorTools | undefined {
   return new CursorTools(new CursorAgentService(config));
 }
 
+/**
+ * Loop needs loop.json + Cursor. Jira is optional (only for jiraKey enrichment).
+ */
+function openLoopTools(memory: MemoryTools, storeDir?: string): LoopTools | undefined {
+  const loopConfig = resolveLoopConfig(storeDir);
+  const cursorConfig = resolveCursorConfig(process.env, storeDir);
+  if (!loopConfig || !cursorConfig) return undefined;
+  const jiraConfig = resolveJiraConfig(process.env, storeDir);
+  const service = new LoopService(
+    loopConfig,
+    new CursorAgentService(cursorConfig),
+    memory,
+    jiraConfig ? new JiraService(new JiraClient(jiraConfig)) : undefined,
+  );
+  return new LoopTools(
+    service,
+    { cursorReady: true, jiraReady: !!jiraConfig },
+    { home: storeDir },
+  );
+}
 export type ServeTransport = 'stdio' | 'http';
 
 export type ServeOptions = {
@@ -106,7 +140,7 @@ export type ServeOptions = {
   /** Required when host is not loopback. */
   authToken?: string;
   /**
-   * Extra Hostnames allowed by MCP DNS-rebinding protection (e.g. ngrok domain).
+   * Extra Hostnames allowed by MCP DNS-rebinding protection (public tunnel host).
    * Always merged with localhost / 127.0.0.1 / ::1.
    */
   allowedHosts?: string[];
@@ -135,8 +169,9 @@ export function hostnameFromUrlOrHost(raw: string): string | undefined {
 }
 
 /**
- * Hostnames permitted behind tunnels (ngrok). Defaults include loopback plus
- * MEMGREP_ALLOWED_HOSTS, MEMGREP_NGROK_DOMAIN, and ~/.memgrep/mcp-public-url.
+ * Hostnames permitted behind any public tunnel. Defaults include loopback plus
+ * MEMGREP_PUBLIC_URL / MEMGREP_PUBLIC_HOST, MEMGREP_ALLOWED_HOSTS, and
+ * ~/.memgrep/mcp-public-url. MEMGREP_NGROK_DOMAIN is still accepted for one-release compat.
  */
 export function resolveAllowedHosts(
   env: NodeJS.ProcessEnv = process.env,
@@ -149,8 +184,15 @@ export function resolveAllowedHosts(
     const h = hostnameFromUrlOrHost(part);
     if (h) hosts.add(h);
   }
-  const ngrok = hostnameFromUrlOrHost(env.MEMGREP_NGROK_DOMAIN ?? '');
-  if (ngrok) hosts.add(ngrok);
+
+  const publicUrl = hostnameFromUrlOrHost(env.MEMGREP_PUBLIC_URL ?? '');
+  if (publicUrl) hosts.add(publicUrl);
+  const publicHost = hostnameFromUrlOrHost(env.MEMGREP_PUBLIC_HOST ?? '');
+  if (publicHost) hosts.add(publicHost);
+
+  // Compat: older installs used MEMGREP_NGROK_DOMAIN for the tunnel hostname.
+  const legacyPublic = hostnameFromUrlOrHost(env.MEMGREP_NGROK_DOMAIN ?? '');
+  if (legacyPublic) hosts.add(legacyPublic);
 
   const urlFile = path.join(home, 'mcp-public-url');
   if (existsSync(urlFile)) {
@@ -193,7 +235,9 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
   const posthog = openPostHogTools(storeDir);
   const neon = openNeonTools(storeDir);
   const upstash = openUpstashTools(storeDir);
+  const gcloud = openGcloudTools(storeDir);
   const cursor = openCursorTools(storeDir);
+  const loop = openLoopTools(tools, storeDir);
   const server = createMemgrepMcpServer(tools, {
     jobs,
     jira,
@@ -201,7 +245,9 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
     posthog,
     neon,
     upstash,
+    gcloud,
     cursor,
+    loop,
   });
   await server.connect(new StdioServerTransport());
 }
@@ -230,9 +276,11 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   const posthog = openPostHogTools(options.storeDir);
   const neon = openNeonTools(options.storeDir);
   const upstash = openUpstashTools(options.storeDir);
+  const gcloud = openGcloudTools(options.storeDir);
   const cursor = openCursorTools(options.storeDir);
+  const loop = openLoopTools(tools, options.storeDir);
 
-  // Loopback bind + ngrok Host header: allow tunnel hostname explicitly.
+  // Loopback bind + public tunnel Host header: allow configured tunnel hostname.
   const allowedHosts = resolveAllowedHosts(process.env, options.storeDir, options.allowedHosts);
   const app = createMcpExpressApp({ host, allowedHosts });
 
@@ -260,7 +308,9 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
       posthog,
       neon,
       upstash,
+      gcloud,
       cursor,
+      loop,
     });
     try {
       const transport = new StreamableHTTPServerTransport({

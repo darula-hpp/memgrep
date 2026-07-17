@@ -1,15 +1,20 @@
 # memgrep
 
-Local agent memory - Cursor from your phone - scheduled playbooks.
+Local agent memory, a coding loop, Cursor from your phone, and playbooks you can schedule.
 
-memgrep started as searchable memory for coding agents. It still is that: every chat across Cursor, Claude Code, and Kiro, fully local, recallable via CLI or MCP. It also grew into a thin remote coding path: an allowlisted Telegram bot that drives a **real Cursor agent** in a real project folder, with memgrep memory attached mid-task. And **jobs**: attach a remembered playbook to a cron schedule so Cursor runs it on a timer (outreach, inbox scan, whatever you stored).
+**Docs:** [https://memgrep.getuigen.dev](https://memgrep.getuigen.dev)
 
-**The point:** lock the workflows you already figured out. `remember` a playbook once; later the agent `recall`s it (from Cursor, Claude, Kiro, or Telegram) instead of vibing the same steps from scratch and burning tokens every time. Schedule it if it should run on a clock.
+memgrep is a local control plane for Cursor. It started as searchable agent memory. The scope is larger now:
 
-- **Playbooks you reuse.** Store the procedure (steps, constraints, script paths). Pull it into the next run with `recall` / `get_chat` - or fire it on a cron with `memgrep jobs`.
-- **Memory that outlives sessions.** Ingest transcripts from Cursor, Claude Code, and Kiro into one local store. Any MCP-capable agent can `recall` / `get_chat` / `remember` mid-task.
-- **Cursor from your phone.** `memgrep telegram` long-polls Telegram's cloud, runs `@cursor/sdk` against a cwd on your machine, and streams replies back. Multi-profile bots, workspace switching, macOS LaunchAgent for always-on while the Mac is awake.
-- **Fully local memory plane.** Embeddings on-device via [Transformers.js](https://github.com/huggingface/transformers.js). SQLite + [hnswlib](https://github.com/yoshoku/hnswlib-node) HNSW. No cloud for your chat archive - your history contains your code.
+| Pillar | What it does |
+| --- | --- |
+| **Memory** | Ingest Cursor / Claude Code / Kiro chats. Hybrid recall (vector + keyword). `remember` playbooks and decisions. Fully local (SQLite + HNSW + on-device embeddings). |
+| **Loop** | Per-project coding loops: task in, exit conditions, exit actions (including `github_pr`). Runs until PASS, then optional PR / follow-ups. Profiles under `~/.memgrep/loops/<name>/`. |
+| **Telegram** | Allowlisted bot drives a **real** local Cursor agent (`@cursor/sdk`) in a real cwd, with memgrep MCP attached mid-task. |
+| **Jobs** | Cron + remembered playbook + Cursor. Schedule the workflows you already trust. |
+| **MCP** | One server for agents: memory + jobs + loop + optional suites (Cursor, Jira, Neon, gcloud, PostHog, Upstash, Product Hunt, …). |
+
+**The point:** lock workflows you already figured out. Store once (`remember` / ingest). Recall mid-task instead of reinventing steps every chat. Loop until done. Schedule what should run on a clock. Drive it from the IDE or from your phone.
 
 ## Demo
 
@@ -17,37 +22,47 @@ memgrep started as searchable memory for coding agents. It still is that: every 
 
 ## Why
 
-I used a full agent gateway (OpenClaw). It worked. It also wasted tokens re-deriving the same workflows every session - outreach steps, deploy checks, inbox scans - things that should have been locked in.
+Agent gateways can vibe a workflow every session. That burns tokens on steps you already solved.
 
-Two problems, one tool:
+memgrep is for the opposite:
 
-1. **Workflows that should be durable.** You should not reinvent a playbook every chat. Store it once (`remember` / ingest), attach it mid-task via MCP, optionally cron it.
-2. **Siloed agent history.** You fixed an auth bug three weeks ago in another editor. Today's agent has no idea. Transcripts exist on disk but aren't searchable across tools.
-3. **Remote coding without a second platform.** Text an agent from your phone and get real work done in a repo. Telegram is the channel; Cursor is the brain; memgrep is the memory (and the scheduler).
-
-memgrep turns the transcript pile into one queryable memory, puts that memory behind MCP (and optionally Telegram), and lets you schedule the playbooks you already trust.
+1. **Durable playbooks** - store the procedure, attach it via MCP, cron it if needed.
+2. **Memory across tools** - a fix from last month's Cursor chat is recallable in today's agent.
+3. **Remote coding without a second platform** - Telegram is the channel; Cursor is the runtime; memgrep is memory, loop, and scheduler.
+4. **Loops that finish work** - not a one-shot prompt: implement, verify exits, run exit actions.
 
 ## Quickstart
+
+Requires Node.js 18+. Native addons build on install. The embedding model (~25 MB) downloads once; memory search is offline after that. Cursor / Telegram / jobs / loop need network and a [`CURSOR_API_KEY`](https://cursor.com/dashboard/integrations).
 
 **1. Memory**
 
 ```bash
 npm install -g memgrep
-memgrep ingest                                  # index chat history (incremental after first run)
-memgrep recall "how did we fix the auth race?"  # search memory
-memgrep copy                                    # top hit -> clipboard
+memgrep ingest
+memgrep recall "how did we fix the auth race?"
+memgrep copy
 ```
 
-**2. Cursor from your phone**
+**2. Coding loop**
 
 ```bash
-memgrep telegram           # first run: BotFather token + Cursor API key + project cwd
-# Text your bot. Then keep it always-on on macOS:
-memgrep telegram install   # or: memgrep telegram install --all  (every profile)
+memgrep loop init my-app --cwd ~/dev/my-app
+memgrep loop use my-app
+memgrep loop run --task "Add health check endpoint and tests"
+memgrep loop status
+memgrep loop runs
+```
+
+**3. Cursor from your phone**
+
+```bash
+memgrep telegram           # BotFather token + Cursor API key + project cwd
+memgrep telegram install   # or: memgrep telegram install --all
 memgrep telegram service   # Loaded: yes?
 ```
 
-**3. Scheduled playbooks** (needs Telegram set up if you want notify mode)
+**4. Scheduled playbooks** (`notify` mode needs Telegram)
 
 ```bash
 memgrep remember "Smoke: reply with one line ok + time. Do not edit files." --title smoke-playbook
@@ -56,113 +71,105 @@ memgrep jobs add --name smoke-5m --cron "*/5 * * * *" \
   --prompt "Reply with one line: smoke ok and the current time. Do not edit files." \
   --mode notify --profile default
 memgrep jobs install
-memgrep jobs run smoke-5m    # fire once now; you should get a Telegram message
-memgrep jobs list
-memgrep jobs service         # Loaded: yes?
+memgrep jobs run smoke-5m
+memgrep jobs service
 ```
 
-Requires Node.js 18+. Native addons (hnswlib, better-sqlite3) build on install. The embedding model (~25 MB) downloads once on first run; memory search is offline after that. Telegram + Cursor + jobs need network and a [`CURSOR_API_KEY`](https://cursor.com/dashboard/integrations). Full command list below.
+**One-shot local stack** (build if needed, Telegram `--all`, jobs LaunchAgent, loopback MCP):
+
+```bash
+node dist/cli.js cursor setup   # once
+node dist/cli.js loop init default --cwd ~/dev/project   # or loop setup
+npm start
+npm stop
+```
+
+MCP stays on `http://127.0.0.1:3921/mcp`. Public tunnels are opt-in (any vendor); see [Optional public MCP](#optional-public-mcp-agnostic-tunnel).
 
 ### Always-on on macOS
-
-Two LaunchAgents, not one:
 
 | Service | Install | Status | Logs |
 | --- | --- | --- | --- |
 | Telegram bots + MCP | `memgrep telegram install` / `--all` | `memgrep telegram service` | `~/.memgrep/logs/telegram-launchd.log` |
 | Jobs scheduler | `memgrep jobs install` | `memgrep jobs service` | `~/.memgrep/logs/jobs-launchd.log` |
 
-Checklist after install (or after upgrading memgrep):
-
-1. Stop any foreground `memgrep telegram` / `memgrep jobs daemon` (Ctrl-C). Only one poller per bot token.
-2. `memgrep telegram install` (add `--all` if you have multiple profiles).
-3. `memgrep jobs install`
-4. Confirm both: `memgrep telegram service` and `memgrep jobs service` show **Loaded: yes**.
-5. Text the bot; ask it to `jobs_list` (MCP must be live).
-6. Optional smoke: `memgrep jobs run <name>` then `memgrep jobs logs <name>`.
-
-Restart a loaded agent:
+After upgrade: stop foreground pollers, re-run `telegram install` / `jobs install`, confirm **Loaded: yes**. Restart:
 
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.memgrep.telegram
 launchctl kickstart -k gui/$(id -u)/com.memgrep.jobs
 ```
 
-After `npm update -g memgrep` (or a local `npm run build`), run `telegram install` / `jobs install` again so the plist points at the new binary. Both pause while the Mac sleeps; missed job ticks beyond a 6h grace window are skipped.
+Both pause while the Mac sleeps; missed job ticks beyond a 6h grace window are skipped.
+
+## Command map
+
+```bash
+# Memory
+memgrep scan | ingest | remember | list | recall | show | copy | delete
+
+# Loop (per-project profiles)
+memgrep loop init <name> [--cwd <path>]
+memgrep loop use <name>
+memgrep loop setup|status [--profile <name>]
+memgrep loop run --task "..." [--profile <name>]
+memgrep loop runs [runId]
+memgrep loop input|exit|action set|rm ...
+
+# Cursor agent (MCP suite)
+memgrep cursor setup|status
+
+# Telegram
+memgrep telegram | telegram setup|list|status|install|service|uninstall
+
+# Jobs
+memgrep jobs add|list|show|run|logs|daemon|install|service|...
+
+# MCP server
+memgrep serve [--http] [--host 127.0.0.1] [--port 3921]
+
+# Optional suites (tools omitted until configured)
+memgrep jira|neon|gcloud|posthog|upstash|producthunt setup|status
+
+# File search (offline semantic grep)
+memgrep index <dir>
+memgrep search "query"
+```
+
+Full walkthroughs: [docs](https://memgrep.getuigen.dev).
 
 ## Agent memory
 
-**Two ways to get things in:** `ingest` pulls chats from your tools (Cursor, Claude Code, Kiro). `remember` stores a note you write yourself (a decision, a postmortem, context no transcript captured).
-
-**Search and browse:** `recall` finds chats by meaning. `list` shows what's stored. `show` / `copy` read one chat back out.
+**In:** `ingest` (Cursor, Claude Code, Kiro) or `remember` (your own note / playbook).  
+**Out:** `recall` (hybrid by default: vector + FTS5/BM25 via RRF), `list`, `show`, `copy`.
 
 ```bash
-memgrep scan [--source kiro] [--new] [--last <n>]   # list on-disk chats (* = not ingested)
-memgrep ingest [--source cursor,claude,kiro]        # ingest from supported tools
-memgrep ingest --pick 2,5                           # ingest by number from last scan
-memgrep ingest --last [n]                           # most recent n chat(s)
-memgrep ingest <file...>                            # one file (format auto-detected)
-memgrep remember "we chose X over Y because Z"      # manual note (no transcript needed)
-memgrep list [--project <p>]
+memgrep scan [--source kiro] [--new] [--last <n>]
+memgrep ingest [--source cursor,claude,kiro]
+memgrep ingest --pick 2,5
+memgrep ingest --last [n]
+memgrep ingest <file...>
+memgrep remember "we chose X over Y because Z" --title decision
 memgrep recall "<query>" [-k <n>] [--mode hybrid|vector|keyword]
-memgrep show <id>
-memgrep copy [id]
-memgrep delete <id>
-memgrep delete --all [--yes]
-memgrep serve [--http] [--host 127.0.0.1] [--port 3921]
-memgrep cursor setup|status                         # local Cursor agent for MCP (cursor_run)
-memgrep telegram                                    # Cursor agent from your phone (+ memgrep MCP)
-memgrep jobs ...                                    # schedule playbooks (add/list/run/daemon/install)
 ```
 
-### Remote Cursor agent via ngrok (MCP)
-
-Cloud Cursor agents already call MCP tools. Expose the Mac-side agent as MCP:
-
-**One-shot (recommended):**
-
-```bash
-node dist/cli.js cursor setup   # once: CURSOR_API_KEY + workspace allowlist
-# once: reserved ngrok domain (also reads project .env / ~/.memgrep/mcp-public-url)
-export MEMGREP_NGROK_DOMAIN=your-subdomain.ngrok-free.app
-npm start                       # build, Telegram (--all), jobs, ngrok tunnel
-npm stop
-```
-
-`npm start` (`scripts/start-all.sh`) will:
-
-1. Build if `dist/` is stale  
-2. Ensure `~/.memgrep/mcp-token`  
-3. Reinstall Telegram LaunchAgent (`telegram --all`) with that token in the plist  
-4. Reinstall jobs LaunchAgent  
-5. Start ngrok on your domain (`MEMGREP_NGROK_DOMAIN`, or `~/.memgrep/mcp-public-url`)  
-6. Print status + client MCP snippet  
-
-Set the domain via env / `.env` (gitignored) or write `https://YOUR-subdomain.ngrok-free.app/mcp` to `~/.memgrep/mcp-public-url`. There is no hardcoded personal domain in the repo.
-
-Logs: `~/.memgrep/logs/telegram-launchd.log`, `jobs-launchd.log`, `~/.memgrep/tunnel/ngrok.log`.
-
-Requires the Mac to be awake. Prefer a strong `MEMGREP_MCP_TOKEN`; do not expose without auth.
-
-Memory lives in `~/.memgrep` (`MEMGREP_HOME` to override). Re-running `ingest` is idempotent: unchanged chats are skipped, grown chats are replaced. `scan` then `--pick` lets you see what's available before embedding anything.
-
-Supported history sources:
+Memory lives in `~/.memgrep` (`MEMGREP_HOME` to override). Re-ingest is idempotent by content hash.
 
 | Tool | Source | Notes |
 | --- | --- | --- |
 | Cursor | `~/.cursor/projects/*/agent-transcripts/` | Full user + assistant turns |
 | Claude Code | `~/.claude/projects/*/*.jsonl` | Full user + assistant turns |
-| Kiro IDE | Kiro `globalStorage` workspace sessions | User turns and titles (assistant output lives in opaque execution records) |
-| Antigravity | Not yet | Conversations are encrypted protobuf (`.pb`); agents can still *query* memory via MCP |
+| Kiro IDE | Kiro `globalStorage` workspace sessions | User turns and titles (assistant output is opaque) |
+| Antigravity | Not yet | Encrypted protobuf; agents can still *query* via MCP |
 | Anything else | `memgrep remember "<text>"` | Manual notes, decisions, postmortems |
 
-New sources are pluggable: implement the two-method `TranscriptSource` interface and pass it to `ingestTranscripts`.
+New sources: implement `TranscriptSource` and pass it to `ingestTranscripts`.
 
-### Give your agents access (MCP)
+### Give agents access (MCP)
 
-Memory is exposed through MCP, so it works in any MCP-capable agent: Cursor, Claude Code, Kiro, Antigravity, Windsurf, Codex, and whatever ships next. Ingest with the CLI, recall from anywhere. Register the server once per tool.
+One MCP server. Register once per client.
 
-**No global install needed** (recommended - always picks up the latest published version):
+**No global install** (recommended):
 
 ```json
 {
@@ -175,7 +182,7 @@ Memory is exposed through MCP, so it works in any MCP-capable agent: Cursor, Cla
 }
 ```
 
-**Already installed globally** (`npm install -g memgrep`):
+**Global install:**
 
 ```json
 {
@@ -188,18 +195,60 @@ Memory is exposed through MCP, so it works in any MCP-capable agent: Cursor, Cla
 }
 ```
 
-Config locations: Cursor `~/.cursor/mcp.json`, Claude Code `claude mcp add memgrep -- npx -y memgrep serve` (or `claude mcp add memgrep -- memgrep serve` if global), Kiro `~/.kiro/settings/mcp.json`, Antigravity via its MCP settings UI.
+Config: Cursor `~/.cursor/mcp.json`, Claude Code `claude mcp add memgrep -- npx -y memgrep serve`, Kiro `~/.kiro/settings/mcp.json`.
 
-The agent gets memory tools (`recall`, `get_chat`, `list_chats`, `remember`) plus job tools (`jobs_list`, `jobs_add`, `jobs_update`, `jobs_remove`, `jobs_run`, `jobs_logs`). Retrieval finds which chat matters; the agent pulls the full transcript into context, stores a durable note, or schedules a playbook. An agent in Kiro can recall a fix from a Cursor chat last month - or create a weekday job from Telegram.
+**Always on the wire:** `recall`, `get_chat`, `list_chats`, `remember`, `jobs_*`.  
+**When configured:** `loop_*`, `cursor_*`, plus optional suites below.
+
+### Optional MCP suites
+
+Configure with `memgrep <suite> setup`. Unconfigured suites are omitted from the tool list.
+
+| Suite | Purpose |
+| --- | --- |
+| `cursor` | Local `@cursor/sdk` agent (`cursor_run`, workspaces, status) |
+| `loop` | Coding loop run / status / upsert defaults |
+| `jira` | Issues, comments, transitions |
+| `neon` | Read-only Neon project / branch metadata |
+| `gcloud` | Logs + GCE inspect (ADC / service account) |
+| `posthog` | Analytics queries / flags |
+| `upstash` | Redis REST helpers |
+| `producthunt` | PH read APIs |
+
+### Optional public MCP (agnostic tunnel)
+
+1. `npm start` or `memgrep serve --http` on `127.0.0.1:3921`
+2. Point any tunnel at that port
+3. Allow the public Host and require a bearer token:
+
+```bash
+export MEMGREP_MCP_TOKEN="$(cat ~/.memgrep/mcp-token)"
+export MEMGREP_PUBLIC_URL=https://your-tunnel.example/mcp
+# or MEMGREP_PUBLIC_HOST / MEMGREP_ALLOWED_HOSTS / ~/.memgrep/mcp-public-url
+```
+
+## Coding loop
+
+Agnostic loop: free-text **task**, optional **inputs**, **exit conditions**, **exit actions**. Background run implements, verifies exits, then runs builtins (e.g. `github_pr`) and any remaining agent actions. Completion can notify via Telegram.
+
+```bash
+memgrep loop init prepaid --cwd ~/dev/prepaid
+memgrep loop use prepaid
+memgrep loop setup                    # edit cwd / git defaults
+memgrep loop status --profile prepaid
+memgrep loop run --task "Ship refunds health check" --profile prepaid
+memgrep loop runs
+```
+
+Profiles: `~/.memgrep/loops/<name>/` (template `~/.memgrep/loop.base/`). Active: `~/.memgrep/loop.active` or `MEMGREP_LOOP_PROFILE`. Legacy `~/.memgrep/loop.json` migrates once into `loops/default`.
+
+MCP: `loop_run` (detached), `loop_run_status`, `loop_status`, `loop_upsert_*` / `loop_remove_*`. Requires Cursor; Jira optional for `jiraKey` context only.
 
 ## Scheduled playbooks (jobs)
 
-A **job** is a cron schedule plus a pointer to a remembered playbook. The daemon fires Cursor in the job’s cwd with memgrep MCP attached; the agent `get_chat`s the playbook and runs your prompt.
+A **job** is cron + pointer to a remembered playbook. The daemon fires Cursor in the job cwd with memgrep MCP; the agent `get_chat`s the playbook and runs your prompt.
 
 ```bash
-# Playbook lives in memory (remember / ingest)
-memgrep remember "Inbox scan: …" --title "email-scan"
-
 memgrep jobs add \
   --name email-scan-am \
   --cron "30 8 * * 1-5" \
@@ -209,67 +258,33 @@ memgrep jobs add \
   --mode auto
 
 memgrep jobs list
-memgrep jobs run email-scan-am    # fire once now
+memgrep jobs run email-scan-am
 memgrep jobs logs email-scan-am
-memgrep jobs daemon               # foreground scheduler
-memgrep jobs install              # macOS LaunchAgent (com.memgrep.jobs)
-memgrep jobs service
+memgrep jobs install              # LaunchAgent com.memgrep.jobs
 ```
 
-Jobs are stored under `~/.memgrep/jobs/` (`jobs.json` + `runs.db`). Default **mode** is `notify` (Telegram summary; agent prefers preview for side effects). Use `--mode auto` for safe read-only jobs. Missed ticks while the Mac slept are skipped after a 6h grace window. Manage the same jobs from Cursor or Telegram via MCP (ask the bot to call `jobs_add` / `jobs_list`) - no separate control plane. `notify` needs a working Telegram profile (`--profile`, default `default`).
+Stored under `~/.memgrep/jobs/`. Default mode is `notify` (Telegram summary). Use `--mode auto` carefully for read-only jobs. Same jobs are manageable from Cursor or Telegram via MCP.
 
 ## Cursor from your phone (Telegram)
 
-Chat with a **local Cursor agent** from Telegram. You do **not** need to be on the same Wi-Fi - Telegram's cloud reaches a long-polling process on your Mac. Usage is billed against your **Cursor plan** (same token pool as the IDE; tagged SDK in the dashboard). You need a [`CURSOR_API_KEY`](https://cursor.com/dashboard/integrations).
-
-Compared to a full agent gateway (e.g. OpenClaw): memgrep keeps the stack thin - Telegram is the channel, Cursor is the runtime, memgrep is the memory. The gateway can vibe a workflow every time; memgrep is for locking the ones you already trust and reusing them (and scheduling them) without paying to rediscover the steps.
+Chat with a **local** Cursor agent from Telegram. You do not need the same Wi-Fi. Usage bills against your Cursor plan. Needs a [`CURSOR_API_KEY`](https://cursor.com/dashboard/integrations).
 
 ```bash
 memgrep telegram
-```
-
-First run walks you through:
-
-1. Linking a [@BotFather](https://t.me/BotFather) token and capturing your user id via `/start`
-2. Pasting your Cursor API key and choosing a project directory
-
-Credentials are saved under `~/.memgrep/telegram/<profile>.json` (mode `0600`; legacy `telegram.json` migrates to `telegram/default.json`). The bot starts an embedded loopback HTTP MCP so Cursor can call memgrep (`recall`, `get_chat`, `list_chats`, `remember`, `jobs_*`) mid-task.
-
-```bash
-memgrep telegram setup              # default profile
-memgrep telegram setup career       # second BotFather bot + cwd/model
+memgrep telegram setup career
 memgrep telegram --profile career
-memgrep telegram --all              # run every profile in one process
-memgrep telegram list
-memgrep telegram status             # all profiles, or: status career
-memgrep telegram install            # LaunchAgent (one profile / sole profile)
-memgrep telegram install --all      # LaunchAgent for every profile
-memgrep telegram service            # Loaded: yes?
-memgrep telegram uninstall
+memgrep telegram --all
+memgrep telegram install --all
+memgrep telegram service
 ```
 
-**Always-on (macOS):** see [Always-on on macOS](#always-on-on-macos) above. `memgrep telegram install` writes `~/Library/LaunchAgents/com.memgrep.telegram.plist`. With multiple profiles you must pass `--all` or `--profile <name>` (plain `install` will refuse to guess). Logs: `~/.memgrep/logs/telegram-launchd.log`.
+Profiles: `~/.memgrep/telegram/<profile>.json`. The bot embeds loopback MCP so Cursor can call memory, jobs, loop, and configured suites mid-task.
 
-Leave `memgrep telegram` (or `--all`) running, or use `install` instead. On your phone:
+On your phone: free text / `/ask`, `/ws` workspaces, `/new`, `/mode`, `/status`, `/recall`, `/list`, `/show`, `/open`, `/help`. Only allowlisted Telegram user ids get answers.
 
-- free text / `/ask …` → Cursor agent (edits/runs in the configured cwd)
-- `/ws` → list saved workspaces (`*` = current)
-- `/ws 2` or `/ws myapp` → switch workspace (starts a fresh Cursor conversation)
-- `/ws add <name> <path>` → save another project folder
-- `/ws rm <name>` → remove a saved workspace
-- `/cwd [path]` → show list or switch by full filesystem path
-- `/new` → fresh Cursor conversation (same workspace)
-- `/status` → cwd, model, agent id, workspaces
-- `/recall <query>` / `/list` / `/show <id>` → memory shortcuts (without going through Cursor)
-- `/help` → commands
+**Env overrides:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `CURSOR_API_KEY`, `MEMGREP_TELEGRAM_CWD`, `MEMGREP_TELEGRAM_MODEL`, `MEMGREP_TELEGRAM_PROFILE`.
 
-Only allowlisted Telegram user ids get answers; everyone else is ignored.
-
-**Optional env overrides:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS` (default profile only), `CURSOR_API_KEY`, `MEMGREP_TELEGRAM_CWD`, `MEMGREP_TELEGRAM_MODEL`, `MEMGREP_TELEGRAM_PROFILE`. If Telegram bot credentials are set in env and no profile exists yet, memgrep migrates them into `telegram/default.json` once.
-
-**Two processes instead of one:** run `memgrep serve --http` in one terminal and `memgrep telegram --no-server` in another (bot + Cursor MCP URL default to `http://127.0.0.1:3921/mcp`, override with `MEMGREP_MCP_URL`).
-
-**HTTP MCP for other clients:** `memgrep serve --http` binds `127.0.0.1:3921` by default. Non-loopback hosts require `MEMGREP_MCP_TOKEN` / `--token`.
+**Split processes:** `memgrep serve --http` + `memgrep telegram --no-server` (`MEMGREP_MCP_URL` to override).
 
 ## File search
 
@@ -280,21 +295,15 @@ npx memgrep index ./docs
 npx memgrep search "how do I configure auth?"
 ```
 
-```text
-docs/authentication.md (score 0.712)
-  Configure auth by setting AUTH_SECRET in your environment and...
-```
-
-Options: `--out` / `--index` to choose the index directory (default `.memgrep`), `--model` to pick any [Transformers.js-compatible embedding model](https://huggingface.co/models?library=transformers.js&pipeline_tag=feature-extraction), `-k` for the number of results.
+Options: `--out` / `--index` (default `.memgrep`), `--model` ([Transformers.js-compatible](https://huggingface.co/models?library=transformers.js&pipeline_tag=feature-extraction)), `-k`.
 
 ## Library usage
 
-The same engine is available as an embeddable library. Think SQLite for semantic search: not a database server, not an API, not a subscription.
+Same engine as an embeddable library (SQLite for semantic search, not a hosted DB):
 
 ```typescript
 import { VectorIndex } from 'memgrep';
 
-// Downloads the model on first use, cached afterwards.
 const index = await VectorIndex.create({ model: 'Xenova/all-MiniLM-L6-v2' });
 
 await index.add([
@@ -303,95 +312,50 @@ await index.add([
 ]);
 
 const hits = await index.search('I forgot my login', { k: 5 });
-// [{ id: 'doc1', score: 0.62, chunk: 'To reset your password...', chunkIndex: 0 }]
-
-await index.save('./my-index'); // persist
-const loaded = await VectorIndex.load('./my-index'); // reload later
+await index.save('./my-index');
+const loaded = await VectorIndex.load('./my-index');
 ```
 
-Long documents are automatically split into overlapping chunks (configurable via `chunkSize` / `chunkOverlap`); `search` returns the best-matching chunk per document. `remove(id)` deletes a document, and re-`add`ing an existing id replaces it.
-
-| Method | Description |
-| --- | --- |
-| `VectorIndex.create(options?)` | New empty index. Options: `model`, `chunkSize`, `chunkOverlap`, `initialCapacity`. |
-| `VectorIndex.load(dir)` | Load a saved index. |
-| `index.add(doc \| docs)` | Add or replace documents (`{ id, text, metadata? }`). |
-| `index.search(query, { k? })` | Top-k documents by cosine similarity. |
-| `index.remove(id)` | Remove a document. |
-| `index.save(dir)` | Persist to a directory. |
-| `index.size` | Number of documents. |
-
-The memory layer is exported too: `MemoryStore`, `ingestTranscripts`, and the per-tool parsers.
-
-## Bring your own database
-
-If you already have a vector database (pgvector, Supabase, LanceDB, Qdrant), you can use memgrep purely as a local embedding pipeline and skip the built-in index. `Embedder` and `chunkText` are exported for exactly this: chunk your text, embed it on-device, and store the vectors wherever you like.
-
-```typescript
-import { Embedder, chunkText } from 'memgrep';
-import pg from 'pg';
-
-const embedder = await Embedder.create('Xenova/all-MiniLM-L6-v2');
-const db = new pg.Pool();
-
-// Index: chunk, embed locally, insert into pgvector.
-const chunks = chunkText(article.body);
-const vectors = await embedder.embed(chunks);
-for (let i = 0; i < chunks.length; i++) {
-  await db.query(
-    'INSERT INTO chunks (article_id, chunk_index, text, embedding) VALUES ($1, $2, $3, $4)',
-    [article.id, i, chunks[i], JSON.stringify(vectors[i])],
-  );
-}
-
-// Search: embed the query the same way, let the database rank.
-const queryVector = await embedder.embedOne('how do refunds work?');
-const { rows } = await db.query(
-  'SELECT text, 1 - (embedding <=> $1) AS score FROM chunks ORDER BY embedding <=> $1 LIMIT 5',
-  [JSON.stringify(queryVector)],
-);
-```
-
-Vectors are L2-normalized, so cosine distance (pgvector's `<=>`) is the right operator. `embedder.dimensions` tells you the column size for your schema (384 for the default model). The one rule: always embed queries with the same model you indexed with.
+Also exported: `Embedder`, `chunkText`, `MemoryStore`, `ingestTranscripts`, and the per-tool parsers. Use `Embedder` + `chunkText` if you already have pgvector / LanceDB / Qdrant and only want local embeddings.
 
 ## How it works
 
-The mental model: **chunks are what's searched, chats are what's returned.**
+**Chunks are searched; chats are returned.**
 
-1. Transcripts are parsed into clean `User:/Assistant:` dialogue. Tool output, diffs, and system context are stripped; only the conversation is kept.
-2. That text is chunked at paragraph/sentence boundaries (~1000 chars, 200 overlap), and each chunk is embedded locally into a 384-dim vector (Transformers.js, mean pooling, L2-normalized). Titles, projects, and dates are stored as plain columns, not embedded.
-3. Vectors go into an HNSW index (cosine space); chat records and chunk text live in SQLite. Chunk text is also indexed in an FTS5 table (BM25) kept in sync via triggers.
-4. A query runs two backends in parallel: HNSW semantic neighbors and FTS5 keyword/BM25. Each side over-fetches and dedupes to the best chunk per chat, then **reciprocal rank fusion (RRF)** merges the lists. Exact ids and error strings ride the keyword path; meaning-based queries still ride vectors.
-5. Ingestion is idempotent by content hash; `remember` and `ingest` both land in the same searchable memory.
-
-Reliability: SQLite is the source of truth and the vector index is a rebuildable cache. If a process dies mid-ingest (Ctrl-C, crash, power loss), no chats are lost: the next command that needs vectors (`recall`, `ingest`, `serve`) detects the divergence, re-embeds whatever is missing, and repairs the index, printing progress while it does. Commands that never touch vectors (`list`, `show`, `copy`, `delete`, `scan`) skip the repair and stay fast no matter what state the index is in. Deleting `index.bin` entirely just triggers a full rebuild from the database.
+1. Transcripts parse to clean `User:` / `Assistant:` dialogue (tool noise stripped).
+2. Text is chunked (~1000 chars, 200 overlap) and embedded locally (384-dim, Transformers.js).
+3. Vectors go to HNSW; chats + chunk text to SQLite; FTS5/BM25 kept in sync via triggers.
+4. Queries run vector + keyword in parallel; **RRF** merges. Exact ids ride keyword; meaning rides vectors.
+5. Ingest is idempotent by content hash. Vector index is a rebuildable cache; SQLite is source of truth. Next `recall` / `ingest` / `serve` self-heals a divergent index.
 
 ## Limitations, honestly
 
-- **Hybrid search helps exact ids, but is not magic.** FTS5/BM25 boosts literal tokens (ticket ids, `ECONNREFUSED`, merchant numbers). Very short or heavily punctuated strings can still miss if they never appear in chunk text.
-- **Kiro ingestion is partial** (user turns and titles; assistant output lives in opaque execution records). **Antigravity can't be ingested** (encrypted protobuf), though its agents can still query memory via MCP. Escape hatch for both: export or paste into a file and `memgrep ingest <file>`.
-- **`delete` is not permanent against re-ingest.** If the source transcript still exists on disk, the next scan re-adds it. Wipe the transcript too, or don't re-scan that source.
-- **One writer at a time.** Concurrent memgrep processes can race on the index file; the self-heal repairs any loss on next open, but there is no cross-process lock yet.
-- **Recall quality tracks what was said.** Sessions where the signal lived in tool output (which is stripped) search poorly. A one-line `memgrep remember` in your own words is often the highest-value thing you can store.
-- **Telegram still needs a host that stays up.** LaunchAgent survives logout/reboot on macOS, but the bot pauses while the Mac sleeps or is offline. True 24/7 means a desktop/VPS that stays powered. Cursor usage is billed to your Cursor plan.
-- **Jobs share that host constraint.** The jobs LaunchAgent also pauses while the Mac sleeps; missed ticks beyond a 6h grace window are skipped. Side-effectful playbooks default to `notify` mode - treat `auto` carefully.
+- Hybrid search helps exact ids; very short or heavily punctuated strings can still miss.
+- Kiro ingestion is partial. Antigravity cannot be ingested today.
+- `delete` is not permanent against re-ingest if the source transcript still exists.
+- One writer at a time; no cross-process lock yet (self-heal repairs loss on next open).
+- Recall quality tracks what was said in dialogue; signal that lived only in tool output searches poorly. A one-line `remember` often wins.
+- Telegram and jobs need a host that stays awake. LaunchAgents pause while the Mac sleeps.
+- Loop and Cursor suites need a valid Cursor API key and allowlisted cwd.
 
 ## Roadmap
 
 - Tombstones so `delete` survives re-ingest
-- More sources (Antigravity if its format opens up, Codex CLI, Windsurf)
-- Watch mode / background daemon for continuous ingest
-- Linux systemd unit alongside the macOS LaunchAgent (telegram + jobs)
+- More transcript sources (Antigravity if the format opens, Codex CLI, Windsurf)
+- Watch mode / continuous ingest
+- Linux systemd units alongside macOS LaunchAgents
 - Telegram `/jobs` slash shortcuts (MCP already covers manage-from-chat)
-- Browser support for the library via a WASM HNSW index
+- Browser / WASM HNSW for the library
 
 ## Development
 
 ```bash
 npm install
-npm run build # compile TypeScript
-npm test # unit + integration tests (first run downloads the model)
+npm run build
+npm test
 ```
+
+Docs site: `cd docs && npm install && npm run dev` (port 4401). Live: [memgrep.getuigen.dev](https://memgrep.getuigen.dev).
 
 ## License
 

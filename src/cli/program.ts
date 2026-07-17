@@ -17,7 +17,9 @@ import { registerProductHuntCommand } from './commands/producthunt.js';
 import { registerPostHogCommand } from './commands/posthog.js';
 import { registerNeonCommand } from './commands/neon.js';
 import { registerUpstashCommand } from './commands/upstash.js';
+import { registerGcloudCommand } from './commands/gcloud.js';
 import { registerCursorCommand } from './commands/cursor.js';
+import { registerLoopCommand } from './commands/loop.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -52,7 +54,9 @@ export function createProgram(): Command {
   registerPostHogCommand(program);
   registerNeonCommand(program);
   registerUpstashCommand(program);
+  registerGcloudCommand(program);
   registerCursorCommand(program);
+  registerLoopCommand(program);
 
   return program;
 }

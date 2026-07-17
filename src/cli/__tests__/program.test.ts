@@ -9,11 +9,13 @@ describe('createProgram', () => {
       'copy',
       'cursor',
       'delete',
+      'gcloud',
       'index',
       'ingest',
       'jira',
       'jobs',
       'list',
+      'loop',
       'neon',
       'posthog',
       'producthunt',
@@ -69,12 +71,38 @@ describe('createProgram', () => {
     expect(sub).toEqual(['setup', 'status']);
   });
 
+  it('registers gcloud subcommands', () => {
+    const program = createProgram();
+    const gcloud = program.commands.find((c) => c.name() === 'gcloud');
+    expect(gcloud).toBeDefined();
+    const sub = gcloud!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual(['setup', 'status']);
+  });
+
   it('registers cursor subcommands', () => {
     const program = createProgram();
     const cursor = program.commands.find((c) => c.name() === 'cursor');
     expect(cursor).toBeDefined();
     const sub = cursor!.commands.map((c) => c.name()).sort();
     expect(sub).toEqual(['setup', 'status']);
+  });
+
+  it('registers loop subcommands', () => {
+    const program = createProgram();
+    const loop = program.commands.find((c) => c.name() === 'loop');
+    expect(loop).toBeDefined();
+    const sub = loop!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual([
+      'action',
+      'exit',
+      'init',
+      'input',
+      'run',
+      'runs',
+      'setup',
+      'status',
+      'use',
+    ]);
   });
 
   it('registers jobs subcommands', () => {
