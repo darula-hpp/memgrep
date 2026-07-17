@@ -58,6 +58,6 @@ export function registerCursorCommand(program: Command): void {
       console.log(`  path:       ${resolved.configPath}`);
       console.log('\nTunnel tip:');
       console.log('  MEMGREP_MCP_TOKEN=… node dist/cli.js serve --http');
-      console.log('  ngrok http 3921');
+      console.log('  (public tunnels are optional/external; npm start keeps MCP on loopback only)');
     });
 }

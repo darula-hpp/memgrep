@@ -115,17 +115,13 @@ memgrep telegram                                    # Cursor agent from your pho
 memgrep jobs ...                                    # schedule playbooks (add/list/run/daemon/install)
 ```
 
-### Remote Cursor agent via ngrok (MCP)
-
-Cloud Cursor agents already call MCP tools. Expose the Mac-side agent as MCP:
+### Local Telegram + MCP (`npm start`)
 
 **One-shot (recommended):**
 
 ```bash
 node dist/cli.js cursor setup   # once: CURSOR_API_KEY + workspace allowlist
-# once: reserved ngrok domain (also reads project .env / ~/.memgrep/mcp-public-url)
-export MEMGREP_NGROK_DOMAIN=your-subdomain.ngrok-free.app
-npm start                       # build, Telegram (--all), jobs, ngrok tunnel
+npm start                       # build, Telegram (--all), jobs, local MCP on 127.0.0.1:3921
 npm stop
 ```
 
@@ -135,14 +131,29 @@ npm stop
 2. Ensure `~/.memgrep/mcp-token`  
 3. Reinstall Telegram LaunchAgent (`telegram --all`) with that token in the plist  
 4. Reinstall jobs LaunchAgent  
-5. Start ngrok on your domain (`MEMGREP_NGROK_DOMAIN`, or `~/.memgrep/mcp-public-url`)  
-6. Print status + client MCP snippet  
+5. Keep MCP on loopback only (`http://127.0.0.1:3921/mcp`)  
+6. **Not** manage a public tunnel (tunnels are external / opt-in)
 
-Set the domain via env / `.env` (gitignored) or write `https://YOUR-subdomain.ngrok-free.app/mcp` to `~/.memgrep/mcp-public-url`. There is no hardcoded personal domain in the repo.
+Logs: `~/.memgrep/logs/telegram-launchd.log`, `jobs-launchd.log`.
 
-Logs: `~/.memgrep/logs/telegram-launchd.log`, `jobs-launchd.log`, `~/.memgrep/tunnel/ngrok.log`.
+Requires the Mac to be awake.
 
-Requires the Mac to be awake. Prefer a strong `MEMGREP_MCP_TOKEN`; do not expose without auth.
+### Optional public MCP (agnostic tunnel)
+
+memgrep does not start or prefer a tunnel vendor. To expose loopback MCP:
+
+1. `npm start` (or `memgrep serve --http`) so MCP listens on `127.0.0.1:3921`  
+2. Run **any** tunnel that forwards to that port (cloudflared, Tailscale Funnel, etc.)  
+3. Allow the public Host header and require a bearer token:
+
+```bash
+export MEMGREP_MCP_TOKEN="$(cat ~/.memgrep/mcp-token)"
+export MEMGREP_PUBLIC_URL=https://your-tunnel.example/mcp
+# or: MEMGREP_PUBLIC_HOST=your-tunnel.example
+# or write the URL to ~/.memgrep/mcp-public-url
+```
+
+Also accepted: `MEMGREP_ALLOWED_HOSTS=host1,host2`. Older `MEMGREP_NGROK_DOMAIN` still works for one release as a hostname alias.
 
 Memory lives in `~/.memgrep` (`MEMGREP_HOME` to override). Re-running `ingest` is idempotent: unchanged chats are skipped, grown chats are replaced. `scan` then `--pick` lets you see what's available before embedding anything.
 

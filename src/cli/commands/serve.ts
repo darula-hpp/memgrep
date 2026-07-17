@@ -11,7 +11,7 @@ export function registerServeCommand(program: Command): void {
     .option('--token <token>', 'Bearer token (required for non-loopback hosts; or set MEMGREP_MCP_TOKEN)')
     .option(
       '--allowed-host <host>',
-      'Extra Host header allowed (repeatable; for ngrok). Also: MEMGREP_ALLOWED_HOSTS / mcp-public-url',
+      'Extra Host header allowed (repeatable; public tunnel hostname). Also: MEMGREP_PUBLIC_URL / MEMGREP_PUBLIC_HOST / MEMGREP_ALLOWED_HOSTS / mcp-public-url',
       (value: string, prev: string[]) => [...prev, value],
       [] as string[],
     )

@@ -40,7 +40,7 @@ export class CursorTools {
           `defaultCwd: ${cwd}`,
           `workspaces: ${workspaces.length}`,
           'Tools: cursor_workspaces, cursor_run (pass agentId to resume).',
-          'Expose via: memgrep serve --http + ngrok http <port> (set MEMGREP_MCP_TOKEN).',
+          'Expose via: memgrep serve --http + any tunnel to the port (set MEMGREP_MCP_TOKEN + MEMGREP_PUBLIC_URL).',
         ].join('\n'),
       };
     } catch (error) {

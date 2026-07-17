@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Start everything memgrep needs locally:
-#   build → MCP token → Telegram LaunchAgent (--all) → jobs LaunchAgent → ngrok tunnel
+# Start local memgrep services:
+#   build → MCP token → Telegram LaunchAgent (--all) → jobs LaunchAgent → local MCP if needed
 # Usage: npm start   (or ./scripts/start-all.sh)
+# Does not start or manage a public tunnel — set MEMGREP_PUBLIC_URL yourself if needed.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,18 +11,15 @@ RUN_DIR="$MEMGREP_HOME/tunnel"
 PORT="${MEMGREP_TUNNEL_PORT:-3921}"
 HOST="${MEMGREP_TUNNEL_HOST:-127.0.0.1}"
 TOKEN_FILE="$MEMGREP_HOME/mcp-token"
-URL_FILE="$MEMGREP_HOME/mcp-public-url"
 CLI="$ROOT/dist/cli.js"
 SERVE_LOG="$RUN_DIR/serve.log"
-NGROK_LOG="$RUN_DIR/ngrok.log"
 SERVE_PID_FILE="$RUN_DIR/serve.pid"
-NGROK_PID_FILE="$RUN_DIR/ngrok.pid"
 CAFFEINATE_PID_FILE="$RUN_DIR/caffeinate.pid"
 
 mkdir -p "$RUN_DIR" "$MEMGREP_HOME/logs"
 umask 077
 
-# Optional local overrides (e.g. MEMGREP_NGROK_DOMAIN). Does not commit secrets.
+# Optional local overrides (gitignored). Does not commit secrets.
 if [[ -f "$ROOT/.env" ]]; then
   set -a
   # shellcheck disable=SC1091
@@ -53,23 +51,6 @@ already_running() {
   [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
 }
 
-resolve_domain() {
-  # Prefer env (or .env), then ~/.memgrep/mcp-public-url. No hardcoded personal domain.
-  local raw="${MEMGREP_NGROK_DOMAIN:-}"
-  if [[ -z "$raw" && -f "$URL_FILE" ]]; then
-    raw="$(tr -d '\n' <"$URL_FILE")"
-  fi
-  if [[ -z "$raw" ]]; then
-    die "Set MEMGREP_NGROK_DOMAIN (e.g. in .env) or write https://YOUR-subdomain.ngrok-free.app/mcp to $URL_FILE"
-  fi
-  # Accept bare host or full URL.
-  if [[ "$raw" == https://* || "$raw" == http://* ]]; then
-    sed -E 's#^https?://([^/]+)/?.*#\1#' <<<"$raw" | tr -d '\n'
-  else
-    printf '%s' "$raw" | tr -d '\n' | sed -E 's#/.*##'
-  fi
-}
-
 ensure_token() {
   if [[ -f "$TOKEN_FILE" ]] && [[ -s "$TOKEN_FILE" ]]; then
     return
@@ -97,13 +78,8 @@ export_token() {
   export MEMGREP_MCP_TOKEN
   [[ -n "$MEMGREP_MCP_TOKEN" ]] || die "empty token in $TOKEN_FILE"
   export MEMGREP_MCP_URL="http://${HOST}:${PORT}/mcp"
-  # So MCP Host-header checks accept the ngrok domain (DNS rebinding protection).
-  local domain
-  domain="$(resolve_domain)"
-  export MEMGREP_NGROK_DOMAIN="$domain"
-  export MEMGREP_ALLOWED_HOSTS="${MEMGREP_ALLOWED_HOSTS:-$domain}"
-  printf '%s\n' "https://${domain}/mcp" >"$URL_FILE"
-  chmod 600 "$URL_FILE"
+  # Pass through optional public-tunnel allowlist env if the user set them.
+  # This script never starts a tunnel process.
 }
 
 start_telegram() {
@@ -120,7 +96,6 @@ start_telegram() {
   fi
 
   log "Installing / restarting Telegram LaunchAgent (all profiles)…"
-  # Re-install so plist picks up current dist/ + MEMGREP_MCP_TOKEN
   if ! node "$CLI" telegram install --all; then
     die "telegram install failed — run: node dist/cli.js telegram setup"
   fi
@@ -156,7 +131,6 @@ wait_for_mcp() {
 }
 
 start_serve_fallback() {
-  # Only if Telegram did not bind MCP (e.g. install failed partially).
   if port_in_use "$PORT"; then
     return
   fi
@@ -174,12 +148,9 @@ start_serve_fallback() {
   wait_for_mcp
 }
 
-NGROK_LABEL="com.memgrep.ngrok"
 CAFFEINATE_LABEL="com.memgrep.caffeinate"
 
 write_launch_agent() {
-  # $1=label $2=program path $3=arg2 $4=arg3... via remaining; log path last? 
-  # Simpler: label, log, and program args as separate.
   local label="$1"
   local log_path="$2"
   shift 2
@@ -223,87 +194,20 @@ start_caffeinate() {
     return
   fi
   if ! command -v caffeinate >/dev/null 2>&1; then
-    log "warning: caffeinate not found — Mac may sleep and drop the tunnel"
+    log "warning: caffeinate not found — Mac may sleep and pause Telegram polling"
     return
   fi
   log "Installing caffeinate LaunchAgent (prevent idle sleep)…"
   write_launch_agent "$CAFFEINATE_LABEL" "$RUN_DIR/caffeinate.log" "$(command -v caffeinate)" -im
 }
 
-start_ngrok() {
-  need_cmd ngrok
-  local domain public_url ngrok_bin
-  domain="$(resolve_domain)"
-  public_url="https://${domain}/mcp"
-  ngrok_bin="$(command -v ngrok)"
-  printf '%s\n' "$public_url" >"$URL_FILE"
-  chmod 600 "$URL_FILE"
-
-  # Clear any leftover foreground ngrok from older scripts
-  pkill -f "ngrok http ${PORT}" 2>/dev/null || true
-  pkill -f 'ngrok start memgrep' 2>/dev/null || true
-  rm -f "$NGROK_PID_FILE"
-
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    log "Installing ngrok LaunchAgent → $public_url …"
-    write_launch_agent "$NGROK_LABEL" "$NGROK_LOG" \
-      "$ngrok_bin" http "$PORT" --url="$domain" --log=stdout
-  else
-    log "Starting ngrok → $public_url …"
-    nohup "$ngrok_bin" http "$PORT" --url="$domain" --log=stdout >>"$NGROK_LOG" 2>&1 &
-    echo $! >"$NGROK_PID_FILE"
-  fi
-
-  local ok=0
-  for _ in $(seq 1 50); do
-    if curl -sS --max-time 1 "http://127.0.0.1:4040/api/tunnels" 2>/dev/null \
-      | grep -q "$domain"; then
-      ok=1
-      break
-    fi
-    sleep 0.25
-  done
-  if [[ "$ok" != "1" ]]; then
-    die "ngrok failed to come online — see $NGROK_LOG"
-  fi
-  log "ngrok ready"
-}
-
-verify_public_mcp() {
-  local domain token
-  domain="$(resolve_domain)"
-  token="$(tr -d '\n' <"$TOKEN_FILE")"
-  log "Verifying public MCP https://${domain}/mcp …"
-  local code=""
-  local attempt
-  for attempt in 1 2 3 4 5; do
-    code="$(
-      curl -sS -o /tmp/memgrep-mcp-probe.out -w '%{http_code}' --max-time 25 \
-        -H "ngrok-skip-browser-warning: true" \
-        -H "Authorization: Bearer ${token}" \
-        -H "Content-Type: application/json" \
-        -H "Accept: application/json, text/event-stream" \
-        -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"memgrep-start","version":"0.0.1"}}}' \
-        "https://${domain}/mcp" 2>/dev/null || echo '000'
-    )"
-    if [[ "$code" == "200" ]] && grep -q 'memgrep' /tmp/memgrep-mcp-probe.out 2>/dev/null; then
-      log "Public MCP OK (HTTP $code)"
-      return
-    fi
-    sleep 1
-  done
-  log "warning: public MCP probe returned HTTP ${code} — see /tmp/memgrep-mcp-probe.out"
-  log "         If clients see ETIMEDOUT, their network may block ngrok (VPN often fixes it)."
-}
-
 print_status() {
-  local domain token_preview
-  domain="$(resolve_domain)"
+  local token_preview
   token_preview="$(head -c 6 "$TOKEN_FILE")…"
 
   echo
   echo "────────────────────────────────────────────────────────"
-  echo "memgrep: all services"
+  echo "memgrep: local services"
   echo
   if [[ "$(uname -s)" == "Darwin" ]]; then
     node "$CLI" telegram service 2>/dev/null || true
@@ -313,26 +217,13 @@ print_status() {
   fi
   cat <<EOF
   MCP local : http://${HOST}:${PORT}/mcp
-  MCP public: https://${domain}/mcp
   Token file: ${TOKEN_FILE} (${token_preview})
+  Public tunnel: not managed (set MEMGREP_PUBLIC_URL if you run your own)
   Logs:
     telegram → ~/.memgrep/logs/telegram-launchd.log
     jobs     → ~/.memgrep/logs/jobs-launchd.log
-    ngrok    → ${NGROK_LOG}
 
 Stop everything:  npm stop
-
-Client mcp.json (paste token: cat ${TOKEN_FILE}):
-{
-  "mcpServers": {
-    "memgrep-tunnel": {
-      "url": "https://${domain}/mcp",
-      "headers": {
-        "Authorization": "Bearer <paste from ${TOKEN_FILE}>"
-      }
-    }
-  }
-}
 ────────────────────────────────────────────────────────
 EOF
 }
@@ -344,6 +235,13 @@ ensure_build
 ensure_token
 export_token
 
+# Legacy cleanup: old installs registered a vendor-specific tunnel LaunchAgent.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  launchctl bootout "gui/$(id -u)/com.memgrep.ngrok" 2>/dev/null || true
+  rm -f "$HOME/Library/LaunchAgents/com.memgrep.ngrok.plist"
+fi
+rm -f "$RUN_DIR/ngrok.pid" "$RUN_DIR/ngrok.log"
+
 if ! node "$CLI" cursor status 2>/dev/null | grep -q 'Cursor MCP: configured'; then
   log "warning: Cursor MCP not configured — run: node dist/cli.js cursor setup"
 fi
@@ -353,6 +251,4 @@ start_telegram
 start_jobs
 wait_for_mcp
 start_serve_fallback
-start_ngrok
-verify_public_mcp
 print_status
