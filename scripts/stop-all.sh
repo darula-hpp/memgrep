@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop tunnel + Telegram/jobs (LaunchAgents on macOS, background PIDs elsewhere).
+# Stop local memgrep services (Telegram/jobs LaunchAgents, local serve).
 set -euo pipefail
 
 MEMGREP_HOME="${MEMGREP_HOME:-$HOME/.memgrep}"
@@ -34,12 +34,13 @@ stop_pid_file() {
   rm -f "$pid_file"
 }
 
-echo "Stopping ngrok / standalone serve / foreground bots…"
-stop_pid_file "ngrok" "$RUN_DIR/ngrok.pid"
+echo "Stopping local serve / foreground bots…"
 stop_pid_file "serve" "$RUN_DIR/serve.pid"
 stop_pid_file "caffeinate" "$RUN_DIR/caffeinate.pid"
 stop_pid_file "telegram" "$RUN_DIR/telegram.pid"
 stop_pid_file "jobs" "$RUN_DIR/jobs.pid"
+# Legacy pid file from older tunnel-managed installs.
+stop_pid_file "legacy-tunnel" "$RUN_DIR/ngrok.pid"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   echo "Stopping macOS LaunchAgents…"
@@ -54,4 +55,4 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   fi
 fi
 
-echo "All stopped. Start again with: npm start"
+echo "All stopped. Start again with: npm start  (local MCP; public tunnel not managed)"

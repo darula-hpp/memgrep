@@ -41,7 +41,9 @@ export async function runCursorSetup(options: {
     console.log('memgrep cursor setup');
     console.log('--------------------');
     console.log('This configures the local Cursor agent for MCP tools (cursor_run).');
-    console.log('For remote access: serve --http + ngrok, with MEMGREP_MCP_TOKEN.\n');
+    console.log(
+      'For remote access: serve --http + any tunnel to :3921, with MEMGREP_MCP_TOKEN and MEMGREP_PUBLIC_URL.\n',
+    );
 
     const defaultProfile =
       options.existingTelegramProfile ||
@@ -113,7 +115,7 @@ export async function runCursorSetup(options: {
       'Cursor tools appear on memgrep MCP after restart (serve / telegram).',
     );
     console.log('Tunnel: MEMGREP_MCP_TOKEN=… node dist/cli.js serve --http');
-    console.log('        ngrok http 3921');
+    console.log('        point any tunnel at 127.0.0.1:3921 and set MEMGREP_PUBLIC_URL');
     return config;
   } finally {
     rl.close();

@@ -57,9 +57,7 @@
     "test": "vitest run",
     "prepublishOnly": "npm run build",
     "start": "bash scripts/start-all.sh",
-    "stop": "bash scripts/stop-all.sh",
-    "tunnel:start": "bash scripts/start-all.sh",
-    "tunnel:stop": "bash scripts/stop-all.sh"
+    "stop": "bash scripts/stop-all.sh"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.18",

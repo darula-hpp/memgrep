@@ -575,7 +575,7 @@ function registerCursorTools(server: McpServer, cursor: CursorTools): void {
       description:
         'Run a turn on the local Cursor agent (Mac host). Work happens in an allowlisted cwd. ' +
         'Pass agentId from a previous result to resume. Use for remote/cloud Cursor agents that ' +
-        'tunnel to this MCP via HTTP (e.g. ngrok).',
+        'tunnel to this MCP via HTTP (any reverse tunnel to loopback).',
       inputSchema: {
         prompt: z.string().describe('Instruction for the local Cursor agent'),
         cwd: z

@@ -106,7 +106,7 @@ export type ServeOptions = {
   /** Required when host is not loopback. */
   authToken?: string;
   /**
-   * Extra Hostnames allowed by MCP DNS-rebinding protection (e.g. ngrok domain).
+   * Extra Hostnames allowed by MCP DNS-rebinding protection (public tunnel host).
    * Always merged with localhost / 127.0.0.1 / ::1.
    */
   allowedHosts?: string[];
@@ -135,8 +135,9 @@ export function hostnameFromUrlOrHost(raw: string): string | undefined {
 }
 
 /**
- * Hostnames permitted behind tunnels (ngrok). Defaults include loopback plus
- * MEMGREP_ALLOWED_HOSTS, MEMGREP_NGROK_DOMAIN, and ~/.memgrep/mcp-public-url.
+ * Hostnames permitted behind any public tunnel. Defaults include loopback plus
+ * MEMGREP_PUBLIC_URL / MEMGREP_PUBLIC_HOST, MEMGREP_ALLOWED_HOSTS, and
+ * ~/.memgrep/mcp-public-url. MEMGREP_NGROK_DOMAIN is still accepted for one-release compat.
  */
 export function resolveAllowedHosts(
   env: NodeJS.ProcessEnv = process.env,
@@ -149,8 +150,15 @@ export function resolveAllowedHosts(
     const h = hostnameFromUrlOrHost(part);
     if (h) hosts.add(h);
   }
-  const ngrok = hostnameFromUrlOrHost(env.MEMGREP_NGROK_DOMAIN ?? '');
-  if (ngrok) hosts.add(ngrok);
+
+  const publicUrl = hostnameFromUrlOrHost(env.MEMGREP_PUBLIC_URL ?? '');
+  if (publicUrl) hosts.add(publicUrl);
+  const publicHost = hostnameFromUrlOrHost(env.MEMGREP_PUBLIC_HOST ?? '');
+  if (publicHost) hosts.add(publicHost);
+
+  // Compat: older installs used MEMGREP_NGROK_DOMAIN for the tunnel hostname.
+  const legacyPublic = hostnameFromUrlOrHost(env.MEMGREP_NGROK_DOMAIN ?? '');
+  if (legacyPublic) hosts.add(legacyPublic);
 
   const urlFile = path.join(home, 'mcp-public-url');
   if (existsSync(urlFile)) {
@@ -232,7 +240,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   const upstash = openUpstashTools(options.storeDir);
   const cursor = openCursorTools(options.storeDir);
 
-  // Loopback bind + ngrok Host header: allow tunnel hostname explicitly.
+  // Loopback bind + public tunnel Host header: allow configured tunnel hostname.
   const allowedHosts = resolveAllowedHosts(process.env, options.storeDir, options.allowedHosts);
   const app = createMcpExpressApp({ host, allowedHosts });
 
