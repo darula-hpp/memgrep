@@ -1,4 +1,12 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -148,6 +156,16 @@ describe('loop config + manifests', () => {
 });
 
 describe('loop profiles', () => {
+  it('init creates missing cwd directory', () => {
+    const home = tempHome();
+    const cwd = path.join(home, 'new-repo');
+    expect(existsSync(cwd)).toBe(false);
+
+    const { config } = initLoopProfile('memgrep-mm', { home, cwd, setActive: true });
+    expect(existsSync(cwd)).toBe(true);
+    expect(config.cwd).toBe(realpathSync(cwd));
+  });
+
   it('init copies base and isolates upserts across profiles', () => {
     const home = tempHome();
     const cwd = path.join(home, 'repo');

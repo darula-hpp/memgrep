@@ -102,7 +102,7 @@ export function registerLoopCommand(program: Command): void {
     .command('init')
     .description('Copy loop.base into a new project profile under ~/.memgrep/loops/<name>/')
     .argument('<name>', 'Profile name (e.g. launchpad)')
-    .option('--cwd <path>', 'Workspace cwd for this profile')
+    .option('--cwd <path>', 'Workspace cwd for this profile (created if missing)')
     .option('--force', 'Overwrite existing profile from base')
     .option('--no-activate', 'Do not set this profile as active')
     .action(async (name: string, opts: { cwd?: string; force?: boolean; activate?: boolean }) => {

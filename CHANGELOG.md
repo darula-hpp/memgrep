@@ -7,19 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-07-18
+
+### Fixed
+
+- **`loop init` / `loop setup` create missing cwd** - `--cwd` / workspace path is created with `mkdir -p` when the directory does not exist yet (was: `cwd does not exist`).
+
+## [1.5.1] - 2026-07-18
+
+### Fixed
+
+- **`memgrep --version` matches the published package** - CLI reads version from `package.json` instead of a hardcoded `1.0.0` string (npm was already `1.5.x`).
+
+### Changed
+
+- **README CLI accuracy** - one-shot stack requires `npm run build` before `node dist/cli.js`; file-search options split (`index` vs `search`); Telegram slash list includes `/cwd` and `/model`; MCP always-on tools include `resolve_open`; suite table documents configure commands; `loop run` (CLI foreground) vs MCP `loop_run` (detached) clarified; `serve` documents `--token` and `--allowed-host`.
+
+## [1.5.0] - 2026-07-18
+
 ### Added
 
-- **Per-project loop profiles** — copy-from-base configs under `~/.memgrep/loops/<name>/` (template `~/.memgrep/loop.base/`). CLI: `loop init <name>`, `loop use <name>`, `--profile` on run/upserts/status. MCP `loop_run` / upserts accept optional `profile`. Active profile in `~/.memgrep/loop.active` (or `MEMGREP_LOOP_PROFILE`). Legacy `~/.memgrep/loop.json` migrates once into `loops/default`.
-- **Loop MCP tools** — optional agnostic coding loop (`loop_status`, `loop_run`, `loop_run_status`, plus `loop_upsert_*` / `loop_remove_*` for defaults). Free-text `task` is required; optional `jiraKey` only enriches context. Defaults are generic **inputs**, **exit conditions**, and **exit actions** (path/url/text/builtin) with agent-facing manifests under `~/.memgrep/loops/<profile>/`. After coding PASS, builtins run first (`github_pr`), then a Cursor turn for remaining actions. Configure with `node dist/cli.js loop init <name>` / `loop setup`; requires Cursor; Jira optional; omitted when unconfigured.
-- **Loop long-running runs** — `loop_run` spawns a detached `loop run` CLI process and returns immediately. Completion is pushed via Telegram; `loop_run_status` / `loop runs` are on-demand inspect only. Per-turn agent timeout defaults to 45 minutes.
-- **Loop scoped commit/push (builtin `github_pr`)** — after PASS, when configured as an exit action, opens a worktree from `origin/<baseBranch>`, commits **only** paths from `LOOP_CHANGED_FILES` (fallback: newly dirty since run baseline), pushes, then `gh pr create`. Skips secrets; HTTPS push fallback via `gh` when SSH origin fails.
-- **`npm start` / `npm stop`** — `scripts/start-all.sh` builds if needed, ensures `~/.memgrep/mcp-token`, reinstalls Telegram (`--all`) + jobs LaunchAgents (with `MEMGREP_MCP_TOKEN` in the plist), and keeps MCP on loopback only. Public tunnels are **not managed** by memgrep.
-- **Agnostic public Host allowlist** — HTTP MCP accepts tunnel hostnames via `MEMGREP_PUBLIC_URL` / `MEMGREP_PUBLIC_HOST` / `MEMGREP_ALLOWED_HOSTS` / `~/.memgrep/mcp-public-url` (any vendor). `MEMGREP_NGROK_DOMAIN` remains as a one-release compat alias. Removed `scripts/start-tunnel.sh` / `stop-tunnel.sh`.
-- **Cursor agent MCP tools** — optional suite on the existing memgrep MCP server (`cursor_workspaces`, `cursor_status`, `cursor_run`) that drives a **local** `@cursor/sdk` agent with a workspace allowlist. Configure with `node dist/cli.js cursor setup` (`~/.memgrep/cursor.json` or `CURSOR_API_KEY` + Telegram profile workspaces). Shared `runAgentTurn` runner is also used by Telegram and jobs. For remote/cloud Cursor clients: `memgrep serve --http` + `MEMGREP_MCP_TOKEN` + any tunnel to loopback with `MEMGREP_PUBLIC_URL`.
-- **Upstash Redis MCP tools** — optional suite on the existing memgrep MCP server (`upstash_ping`, `upstash_get`, `upstash_set`, `upstash_del`, `upstash_dbsize`, `upstash_ttl`, `upstash_type`, `upstash_scan`). Configure with `node dist/cli.js upstash setup` (`~/.memgrep/upstash.json` or `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`); tools are omitted when unconfigured.
-- **Neon MCP tools** — optional read-only suite on the existing memgrep MCP server (`neon_list_projects`, `neon_get_project`, `neon_list_branches`, `neon_connection_uri`). Configure with `node dist/cli.js neon setup` (`~/.memgrep/neon.json` or `NEON_API_KEY` / optional `NEON_PROJECT_ID`); tools are omitted when unconfigured. Supports project-scoped API keys (verify/list fall back to `GET /projects/{id}` / `subject_project_id` instead of listing all projects).
-- **Google Cloud MCP tools** — optional read-only suite on the existing memgrep MCP server (`gcloud_list_projects`, `gcloud_logs_query`, `gcloud_list_instances`, `gcloud_get_instance`). Configure with `node dist/cli.js gcloud setup` (`~/.memgrep/gcloud.json` or `GCLOUD_PROJECT` / `GOOGLE_CLOUD_PROJECT` / optional `GOOGLE_APPLICATION_CREDENTIALS`); uses Application Default Credentials or a service-account JSON via `google-auth-library` (no `gcloud` CLI binary). Tools are omitted when unconfigured.
-- **PostHog MCP tools** — optional read-only suite on the existing memgrep MCP server (`posthog_query`, `posthog_top_events`, `posthog_feature_flags`, `posthog_get_flag`). Configure with `node dist/cli.js posthog setup` (`~/.memgrep/posthog.json` or `POSTHOG_API_KEY` / `POSTHOG_PROJECT_ID` / optional `POSTHOG_HOST`); tools are omitted when unconfigured.
+- **Docs site** - Next.js docs under `docs/` at [https://memgrep.getuigen.dev](https://memgrep.getuigen.dev) (getting started, concepts, guides, CLI, MCP).
+- **Expanded product README** - frames memory, coding loop, Telegram, jobs, and optional MCP suites as the full surface area.
+- **Per-project loop profiles** - copy-from-base configs under `~/.memgrep/loops/<name>/` (template `~/.memgrep/loop.base/`). CLI: `loop init <name>`, `loop use <name>`, `--profile` on run/upserts/status. MCP `loop_run` / upserts accept optional `profile`. Active profile in `~/.memgrep/loop.active` (or `MEMGREP_LOOP_PROFILE`). Legacy `~/.memgrep/loop.json` migrates once into `loops/default`.
+- **Loop MCP tools** - optional agnostic coding loop (`loop_status`, `loop_run`, `loop_run_status`, plus `loop_upsert_*` / `loop_remove_*` for defaults). Free-text `task` is required; optional `jiraKey` only enriches context. Defaults are generic **inputs**, **exit conditions**, and **exit actions** (path/url/text/builtin) with agent-facing manifests under `~/.memgrep/loops/<profile>/`. After coding PASS, builtins run first (`github_pr`), then a Cursor turn for remaining actions. Configure with `memgrep loop init <name>` / `loop setup`; requires Cursor; Jira optional; omitted when unconfigured.
+- **Loop long-running runs** - `loop_run` spawns a detached `loop run` CLI process and returns immediately. Completion is pushed via Telegram; `loop_run_status` / `loop runs` are on-demand inspect only. Per-turn agent timeout defaults to 45 minutes.
+- **Loop scoped commit/push (builtin `github_pr`)** - after PASS, when configured as an exit action, opens a worktree from `origin/<baseBranch>`, commits **only** paths from `LOOP_CHANGED_FILES` (fallback: newly dirty since run baseline), pushes, then `gh pr create`. Skips secrets; HTTPS push fallback via `gh` when SSH origin fails.
+- **`npm start` / `npm stop`** - `scripts/start-all.sh` builds if needed, ensures `~/.memgrep/mcp-token`, reinstalls Telegram (`--all`) + jobs LaunchAgents (with `MEMGREP_MCP_TOKEN` in the plist), and keeps MCP on loopback only. Public tunnels are **not managed** by memgrep.
+- **Agnostic public Host allowlist** - HTTP MCP accepts tunnel hostnames via `MEMGREP_PUBLIC_URL` / `MEMGREP_PUBLIC_HOST` / `MEMGREP_ALLOWED_HOSTS` / `~/.memgrep/mcp-public-url` (any vendor). `MEMGREP_NGROK_DOMAIN` remains as a one-release compat alias. Removed `scripts/start-tunnel.sh` / `stop-tunnel.sh`.
+- **Cursor agent MCP tools** - optional suite on the existing memgrep MCP server (`cursor_workspaces`, `cursor_status`, `cursor_run`) that drives a **local** `@cursor/sdk` agent with a workspace allowlist. Configure with `memgrep cursor setup` (`~/.memgrep/cursor.json` or `CURSOR_API_KEY` + Telegram profile workspaces). Shared `runAgentTurn` runner is also used by Telegram and jobs. For remote/cloud Cursor clients: `memgrep serve --http` + `MEMGREP_MCP_TOKEN` + any tunnel to loopback with `MEMGREP_PUBLIC_URL`.
+- **Upstash Redis MCP tools** - optional suite (`upstash_ping`, `upstash_get`, `upstash_set`, `upstash_del`, `upstash_dbsize`, `upstash_ttl`, `upstash_type`, `upstash_scan`). Configure with `memgrep upstash setup`; tools omitted when unconfigured.
+- **Neon MCP tools** - optional read-only suite (`neon_list_projects`, `neon_get_project`, `neon_list_branches`, `neon_connection_uri`). Configure with `memgrep neon setup`; supports project-scoped API keys.
+- **Google Cloud MCP tools** - optional read-only suite (`gcloud_list_projects`, `gcloud_logs_query`, `gcloud_list_instances`, `gcloud_get_instance`). Configure with `memgrep gcloud setup`; ADC or service-account JSON via `google-auth-library` (no `gcloud` CLI binary).
+- **PostHog MCP tools** - optional read-only suite (`posthog_query`, `posthog_top_events`, `posthog_feature_flags`, `posthog_get_flag`). Configure with `memgrep posthog setup`; tools omitted when unconfigured.
 
 ## [1.4.0] - 2026-07-13
 
@@ -150,7 +170,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SQLite + HNSW index with self-healing (rebuilds the vector cache from the database after crashes or interrupted ingests).
 - Idempotent ingestion by content hash; manual notes via `remember` land in the same searchable memory.
 
-[Unreleased]: https://github.com/darula-hpp/memgrep/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/darula-hpp/memgrep/compare/v1.5.2...HEAD
+[1.5.2]: https://github.com/darula-hpp/memgrep/compare/v1.5.1...v1.5.2
+[1.5.1]: https://github.com/darula-hpp/memgrep/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/darula-hpp/memgrep/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/darula-hpp/memgrep/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/darula-hpp/memgrep/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/darula-hpp/memgrep/compare/v1.1.0...v1.2.0

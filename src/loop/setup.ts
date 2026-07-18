@@ -12,7 +12,7 @@ import {
   listLoopProfiles,
   migrateLegacyLoopIfNeeded,
   readLoopConfig,
-  resolveExistingPath,
+  ensureDirectoryPath,
   resolveProfileName,
   setActiveLoopProfile,
   writeLoopConfig,
@@ -62,7 +62,7 @@ export async function runLoopSetup(
         rl,
         `Workspace cwd${cwdDefault ? ` [${cwdDefault}]` : ''}: `,
       );
-      const cwd = resolveExistingPath(cwdAnswer || cwdDefault, 'directory', 'cwd');
+      const cwd = ensureDirectoryPath(cwdAnswer || cwdDefault, 'cwd');
       const { config } = initLoopProfile(name, { home, cwd, setActive: true });
       profile = name;
       scope.profile = name;
@@ -123,7 +123,7 @@ export async function runLoopSetup(
         rl,
         `Workspace cwd${cwdDefault ? ` [${cwdDefault}]` : ''}: `,
       );
-      const cwd = resolveExistingPath(cwdAnswer || cwdDefault, 'directory', 'cwd');
+      const cwd = ensureDirectoryPath(cwdAnswer || cwdDefault, 'cwd');
       const config = writeLoopConfig({ ...existing, cwd }, scope);
       printSaved(home, profile, config);
       return config;
@@ -134,7 +134,7 @@ export async function runLoopSetup(
       rl,
       `Workspace cwd (git repo)${cwdDefault ? ` [${cwdDefault}]` : ''}: `,
     );
-    const cwd = resolveExistingPath(cwdAnswer || cwdDefault, 'directory', 'cwd');
+    const cwd = ensureDirectoryPath(cwdAnswer || cwdDefault, 'cwd');
 
     const baseDefault = existing.git?.baseBranch || DEFAULT_LOOP_BASE_BRANCH;
     const baseAnswer = await prompt(rl, `Base branch for github_pr [${baseDefault}]: `);

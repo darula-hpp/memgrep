@@ -302,6 +302,20 @@ export function resolveExistingPath(
   return realpathSync(expanded);
 }
 
+/** Expand `~`, create the directory if missing, then return its real path. */
+export function ensureDirectoryPath(raw: string, label = 'cwd'): string {
+  const expanded = expandHomePath(raw.trim());
+  if (!expanded) throw new Error(`${label} is required`);
+  if (!existsSync(expanded)) {
+    mkdirSync(expanded, { recursive: true });
+  }
+  const st = statSync(expanded);
+  if (!st.isDirectory()) {
+    throw new Error(`${label} must be a directory: ${expanded}`);
+  }
+  return realpathSync(expanded);
+}
+
 function normalizeArtifact(raw: LoopArtifact): LoopArtifact {
   const id = raw.id.trim();
   if (!id) throw new Error('artifact id is required');
@@ -586,11 +600,7 @@ export function initLoopProfile(
 
   const store = storeFromDir(home, destDir, profile, false);
   const current = readConfigFile(store.configPath);
-  const cwd = resolveExistingPath(
-    options.cwd?.trim() || current.cwd,
-    'directory',
-    'cwd',
-  );
+  const cwd = ensureDirectoryPath(options.cwd?.trim() || current.cwd, 'cwd');
   const next = buildConfigPayload({ ...current, cwd }, current);
   writeConfigToStore(next, store);
 
