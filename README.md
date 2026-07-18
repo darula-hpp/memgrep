@@ -75,9 +75,10 @@ memgrep jobs run smoke-5m
 memgrep jobs service
 ```
 
-**One-shot local stack** (build if needed, Telegram `--all`, jobs LaunchAgent, loopback MCP):
+**One-shot local stack** (Telegram `--all`, jobs LaunchAgent, loopback MCP):
 
 ```bash
+npm run build
 node dist/cli.js cursor setup   # once
 node dist/cli.js loop init default --cwd ~/dev/project   # or loop setup
 npm start
@@ -126,10 +127,11 @@ memgrep telegram | telegram setup|list|status|install|service|uninstall
 memgrep jobs add|list|show|run|logs|daemon|install|service|...
 
 # MCP server
-memgrep serve [--http] [--host 127.0.0.1] [--port 3921]
+memgrep serve [--http] [--host 127.0.0.1] [--port 3921] [--token <token>] [--allowed-host <host>]
 
 # Optional suites (tools omitted until configured)
 memgrep jira|neon|gcloud|posthog|upstash|producthunt setup|status
+# Loop: use `loop init` / `loop setup` (not `<suite> setup`)
 
 # File search (offline semantic grep)
 memgrep index <dir>
@@ -197,23 +199,23 @@ One MCP server. Register once per client.
 
 Config: Cursor `~/.cursor/mcp.json`, Claude Code `claude mcp add memgrep -- npx -y memgrep serve`, Kiro `~/.kiro/settings/mcp.json`.
 
-**Always on the wire:** `recall`, `get_chat`, `list_chats`, `remember`, `jobs_*`.  
+**Always on the wire:** `recall`, `get_chat`, `list_chats`, `remember`, `resolve_open`, `jobs_*`.  
 **When configured:** `loop_*`, `cursor_*`, plus optional suites below.
 
 ### Optional MCP suites
 
-Configure with `memgrep <suite> setup`. Unconfigured suites are omitted from the tool list.
+Unconfigured suites are omitted from the tool list.
 
-| Suite | Purpose |
-| --- | --- |
-| `cursor` | Local `@cursor/sdk` agent (`cursor_run`, workspaces, status) |
-| `loop` | Coding loop run / status / upsert defaults |
-| `jira` | Issues, comments, transitions |
-| `neon` | Read-only Neon project / branch metadata |
-| `gcloud` | Logs + GCE inspect (ADC / service account) |
-| `posthog` | Analytics queries / flags |
-| `upstash` | Redis REST helpers |
-| `producthunt` | PH read APIs |
+| Suite | Configure | Purpose |
+| --- | --- | --- |
+| `cursor` | `memgrep cursor setup` | Local `@cursor/sdk` agent (`cursor_workspaces`, `cursor_status`, `cursor_run`) |
+| `loop` | `memgrep loop init` / `loop setup` | Coding loop (`loop_run`, `loop_status`, upsert defaults) |
+| `jira` | `memgrep jira setup` | Issues, comments, transitions |
+| `neon` | `memgrep neon setup` | Read-only Neon project / branch metadata |
+| `gcloud` | `memgrep gcloud setup` | Logs + GCE inspect (ADC / service account) |
+| `posthog` | `memgrep posthog setup` | Analytics queries / flags |
+| `upstash` | `memgrep upstash setup` | Redis REST helpers |
+| `producthunt` | `memgrep producthunt setup` | PH read APIs |
 
 ### Optional public MCP (agnostic tunnel)
 
@@ -229,20 +231,20 @@ export MEMGREP_PUBLIC_URL=https://your-tunnel.example/mcp
 
 ## Coding loop
 
-Agnostic loop: free-text **task**, optional **inputs**, **exit conditions**, **exit actions**. Background run implements, verifies exits, then runs builtins (e.g. `github_pr`) and any remaining agent actions. Completion can notify via Telegram.
+Agnostic loop: free-text **task**, optional **inputs**, **exit conditions**, **exit actions**. The loop implements, verifies exits, then runs builtins (e.g. `github_pr`) and any remaining agent actions. Completion can notify via Telegram.
 
 ```bash
 memgrep loop init prepaid --cwd ~/dev/prepaid
 memgrep loop use prepaid
 memgrep loop setup                    # edit cwd / git defaults
 memgrep loop status --profile prepaid
-memgrep loop run --task "Ship refunds health check" --profile prepaid
+memgrep loop run --task "Ship refunds health check" --profile prepaid   # foreground (CLI)
 memgrep loop runs
 ```
 
 Profiles: `~/.memgrep/loops/<name>/` (template `~/.memgrep/loop.base/`). Active: `~/.memgrep/loop.active` or `MEMGREP_LOOP_PROFILE`. Legacy `~/.memgrep/loop.json` migrates once into `loops/default`.
 
-MCP: `loop_run` (detached), `loop_run_status`, `loop_status`, `loop_upsert_*` / `loop_remove_*`. Requires Cursor; Jira optional for `jiraKey` context only.
+MCP: `loop_run` starts detached in the background; also `loop_run_status`, `loop_status`, `loop_upsert_*` / `loop_remove_*`. Requires Cursor; Jira optional for `jiraKey` context only.
 
 ## Scheduled playbooks (jobs)
 
@@ -280,7 +282,7 @@ memgrep telegram service
 
 Profiles: `~/.memgrep/telegram/<profile>.json`. The bot embeds loopback MCP so Cursor can call memory, jobs, loop, and configured suites mid-task.
 
-On your phone: free text / `/ask`, `/ws` workspaces, `/new`, `/mode`, `/status`, `/recall`, `/list`, `/show`, `/open`, `/help`. Only allowlisted Telegram user ids get answers.
+On your phone: free text / `/ask`, `/ws` workspaces, `/cwd`, `/new`, `/model`, `/mode`, `/status`, `/recall`, `/list`, `/show`, `/open`, `/help`. Only allowlisted Telegram user ids get answers.
 
 **Env overrides:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `CURSOR_API_KEY`, `MEMGREP_TELEGRAM_CWD`, `MEMGREP_TELEGRAM_MODEL`, `MEMGREP_TELEGRAM_PROFILE`.
 
@@ -295,7 +297,8 @@ npx memgrep index ./docs
 npx memgrep search "how do I configure auth?"
 ```
 
-Options: `--out` / `--index` (default `.memgrep`), `--model` ([Transformers.js-compatible](https://huggingface.co/models?library=transformers.js&pipeline_tag=feature-extraction)), `-k`.
+`index` options: `--out` (default `.memgrep`), `--model` (any [Transformers.js-compatible](https://huggingface.co/models?library=transformers.js&pipeline_tag=feature-extraction) embedding model).  
+`search` options: `--index` (default `.memgrep`), `-k` for the number of results.
 
 ## Library usage
 
