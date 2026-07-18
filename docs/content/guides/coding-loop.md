@@ -11,7 +11,7 @@ The loop is an agnostic coding cycle: free-text task, pinned inputs, exit condit
 
 Editable config lives in the **project**:
 
-`<cwd>/.memgrep/loop.json` (plus input/exit/action manifests)
+`<cwd>/.memgrep/` (`loop.json`, input/exit/action manifests, and `AGENTS.md`)
 
 The global template stays at `~/.memgrep/loop.base/`. A thin named pointer is stored at `~/.memgrep/loops/<name>/project.json` so `loop use` / active profile still work.
 
@@ -22,6 +22,8 @@ memgrep loop status
 ```
 
 Open `<repo>/.memgrep/` in your IDE to edit defaults. Commit that folder if the team should share exits/actions.
+
+`AGENTS.md` is the agent guide for how to add inputs, exits, and actions (CLI + MCP), artifact kinds, and required `LOOP_*` trailers. It is seeded from `loop.base` on init and planted again on resolve if missing (custom edits are kept).
 
 ## Run
 

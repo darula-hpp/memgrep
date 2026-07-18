@@ -242,7 +242,7 @@ memgrep loop run --task "Ship refunds health check" --profile prepaid   # foregr
 memgrep loop runs
 ```
 
-Config lives in the project at `<cwd>/.memgrep/` (edit in your IDE; safe to commit). Home keeps a thin pointer at `~/.memgrep/loops/<name>/project.json` and the template at `~/.memgrep/loop.base/`. Active: `~/.memgrep/loop.active` or `MEMGREP_LOOP_PROFILE`. Legacy home-only `loops/<name>/loop.json` still works until you re-init.
+Config lives in the project at `<cwd>/.memgrep/` (edit in your IDE; safe to commit), including `AGENTS.md` (how to add inputs/exits/actions for agents). Home keeps a thin pointer at `~/.memgrep/loops/<name>/project.json` and the template at `~/.memgrep/loop.base/`. Active: `~/.memgrep/loop.active` or `MEMGREP_LOOP_PROFILE`. Legacy home-only `loops/<name>/loop.json` still works until you re-init.
 
 MCP: `loop_run` starts detached in the background; also `loop_run_status`, `loop_status`, `loop_upsert_*` / `loop_remove_*`. Requires Cursor; Jira optional for `jiraKey` context only.
 

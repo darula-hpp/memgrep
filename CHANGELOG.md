@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Project-local loop config** - `loop init` writes editable config to `<cwd>/.memgrep/` (`loop.json` + manifests). Home profile is a thin `~/.memgrep/loops/<name>/project.json` pointer. Template stays at `~/.memgrep/loop.base/`. Upserts/status/run resolve through the project store; existing home-only profiles still work, and a home `loop.json` auto-links if the project `.memgrep/` already exists.
+- **Loop `AGENTS.md`** - seeded into `~/.memgrep/loop.base/` and copied into each project `<cwd>/.memgrep/` on init; planted on resolve if missing. Guide covers adding inputs/exits/actions (CLI + MCP), artifact kinds, and `LOOP_*` trailers. Implement/verify prompts point agents at it.
 
 ## [1.5.2] - 2026-07-18
 

@@ -178,6 +178,25 @@ describe('loop profiles', () => {
     expect(existsSync(store.configPath)).toBe(true);
     expect(existsSync(linkPath)).toBe(true);
     expect(existsSync(path.join(loopProfileDir('memgrep-mm', home), 'loop.json'))).toBe(false);
+    const agentsPath = path.join(store.dirPath, 'AGENTS.md');
+    expect(existsSync(agentsPath)).toBe(true);
+    expect(readFileSync(agentsPath, 'utf8')).toContain('How to add items (CLI)');
+    expect(readFileSync(agentsPath, 'utf8')).toContain('code review rules');
+    expect(existsSync(path.join(home, 'loop.base', 'AGENTS.md'))).toBe(true);
+  });
+
+  it('resolveLoopConfig plants AGENTS.md when missing from an existing project store', () => {
+    const home = tempHome();
+    const cwd = path.join(home, 'repo');
+    mkdirSync(cwd, { recursive: true });
+    initLoopProfile('plant', { home, cwd, setActive: true });
+    const agentsPath = path.join(projectMemgrepDir(realpathSync(cwd)), 'AGENTS.md');
+    rmSync(agentsPath, { force: true });
+    expect(existsSync(agentsPath)).toBe(false);
+    const resolved = resolveLoopConfig(home)!;
+    expect(resolved.dirPath).toBe(path.dirname(agentsPath));
+    expect(existsSync(agentsPath)).toBe(true);
+    expect(readFileSync(agentsPath, 'utf8')).toContain('LOOP_STATUS');
   });
 
   it('init copies base into each project and isolates upserts across profiles', () => {
@@ -509,5 +528,6 @@ describe('buildPinnedFromConfig', () => {
       inputs: [{ id: 'b', kind: 'text', value: '2', label: 'B' }],
     });
     expect(pin.inputs.map((i) => i.id).sort()).toEqual(['a', 'b']);
+    expect(pin.agentsGuidePath).toBe(path.join(config.dirPath, 'AGENTS.md'));
   });
 });

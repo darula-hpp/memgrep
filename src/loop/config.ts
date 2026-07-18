@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { writeFileAtomic } from '../fs/atomic-write.js';
 import { defaultHome } from '../memory/store.js';
 import { expandHomePath } from '../telegram/config.js';
+import { ensureAgentsGuide } from './agents-guide.js';
 
 export const LOOP_CONFIG_FILE = 'loop.json';
 /** @deprecated Legacy shared manifests dir; prefer loops/<profile>/ */
@@ -646,29 +647,30 @@ export function ensureLoopBase(
 ): string {
   const baseDir = loopBaseDir(home);
   const baseConfigPath = path.join(baseDir, LOOP_CONFIG_FILE);
-  if (existsSync(baseConfigPath)) return baseDir;
-
-  const cwd =
-    seed?.cwd && existsSync(seed.cwd)
-      ? realpathSync(seed.cwd)
-      : existsSync(process.cwd())
-        ? realpathSync(process.cwd())
-        : home;
-  const now = new Date().toISOString();
-  const next: LoopConfig = {
-    version: 1,
-    cwd,
-    defaults: emptyDefaults(),
-    git: {
-      baseBranch: seed?.git?.baseBranch || DEFAULT_LOOP_BASE_BRANCH,
-      branchPrefix: seed?.git?.branchPrefix || DEFAULT_LOOP_BRANCH_PREFIX,
-    },
-    maxIterations: seed?.maxIterations ?? DEFAULT_LOOP_MAX_ITERATIONS,
-    agentTimeoutMs: seed?.agentTimeoutMs ?? DEFAULT_LOOP_AGENT_TIMEOUT_MS,
-    createdAt: now,
-    updatedAt: now,
-  };
-  writeConfigToStore(next, storeFromDir(home, baseDir, null, false));
+  if (!existsSync(baseConfigPath)) {
+    const cwd =
+      seed?.cwd && existsSync(seed.cwd)
+        ? realpathSync(seed.cwd)
+        : existsSync(process.cwd())
+          ? realpathSync(process.cwd())
+          : home;
+    const now = new Date().toISOString();
+    const next: LoopConfig = {
+      version: 1,
+      cwd,
+      defaults: emptyDefaults(),
+      git: {
+        baseBranch: seed?.git?.baseBranch || DEFAULT_LOOP_BASE_BRANCH,
+        branchPrefix: seed?.git?.branchPrefix || DEFAULT_LOOP_BRANCH_PREFIX,
+      },
+      maxIterations: seed?.maxIterations ?? DEFAULT_LOOP_MAX_ITERATIONS,
+      agentTimeoutMs: seed?.agentTimeoutMs ?? DEFAULT_LOOP_AGENT_TIMEOUT_MS,
+      createdAt: now,
+      updatedAt: now,
+    };
+    writeConfigToStore(next, storeFromDir(home, baseDir, null, false));
+  }
+  ensureAgentsGuide(baseDir);
   return baseDir;
 }
 
@@ -762,6 +764,7 @@ export function initLoopProfile(
   mkdirSync(loopsRoot(home), { recursive: true, mode: 0o700 });
   mkdirSync(projectDir, { recursive: true, mode: 0o700 });
   cpSync(baseDir, projectDir, { recursive: true });
+  ensureAgentsGuide(projectDir);
 
   const store = storeFromProject(home, projectRoot, profile);
   const current = readConfigFile(store.configPath);
@@ -972,6 +975,7 @@ export function resolveLoopConfig(
   try {
     const store = getLoopStore(options);
     if (!existsSync(store.configPath)) return undefined;
+    ensureAgentsGuide(store.dirPath);
     const file = readConfigFile(store.configPath);
     const cwd = resolveExistingPath(file.cwd, 'directory', 'cwd');
     const defaults = {

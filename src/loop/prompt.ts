@@ -1,5 +1,7 @@
+import path from 'node:path';
 import type { LoopArtifact, ResolvedLoopConfig } from './config.js';
 import { mergeArtifacts } from './config.js';
+import { LOOP_AGENTS_FILE } from './agents-guide.js';
 
 export type LoopPinnedContext = {
   workspaceCwd: string;
@@ -8,6 +10,7 @@ export type LoopPinnedContext = {
   inputsManifestPath: string;
   exitsManifestPath: string;
   actionsManifestPath: string;
+  agentsGuidePath: string;
   inputs: LoopArtifact[];
   exits: LoopArtifact[];
   actions: LoopArtifact[];
@@ -33,7 +36,7 @@ function formatArtifactList(title: string, artifacts: LoopArtifact[]): string {
     ...artifacts.map(
       (a) =>
         `- ${a.id} [${a.kind}] ${a.label || a.id}: ${a.value}` +
-        (a.description ? ` — ${a.description}` : ''),
+        (a.description ? ` - ${a.description}` : ''),
     ),
   ].join('\n');
 }
@@ -48,10 +51,14 @@ export function buildPinnedBlock(pin: LoopPinnedContext): string {
     `- inputsManifest: ${pin.inputsManifestPath}`,
     `- exitsManifest: ${pin.exitsManifestPath}`,
     `- actionsManifest: ${pin.actionsManifestPath}`,
+    `- agentsGuide: ${pin.agentsGuidePath}`,
     '',
     formatArtifactList('Inputs', pin.inputs),
     '',
-    formatArtifactList('Exit conditions (must all be met for PASS)', pin.exits),
+    formatArtifactList(
+      'Exit conditions (code-review rules; must all pass for LOOP_STATUS: PASS)',
+      pin.exits,
+    ),
     '',
     formatArtifactList('Exit actions (run only after PASS)', pin.actions),
   ]
@@ -77,6 +84,7 @@ export function buildPinnedFromConfig(
     inputsManifestPath: config.inputsManifestPath,
     exitsManifestPath: config.exitsManifestPath,
     actionsManifestPath: config.actionsManifestPath,
+    agentsGuidePath: path.join(config.dirPath, LOOP_AGENTS_FILE),
     inputs: mergeArtifacts(config.defaults.inputs, input.inputs),
     exits: mergeArtifacts(config.defaults.exits, input.exits),
     actions: mergeArtifacts(config.defaults.actions, input.actions),
@@ -124,8 +132,10 @@ export function buildImplementPrompt(opts: {
   const parts = [
     `You are running memgrep loop for task: ${opts.pin.task}.`,
     'Implement the task in workspaceCwd only.',
+    'Read AGENTS.md in the project .memgrep/ folder for how inputs, exits, and actions work.',
     'Read the inputs manifest and each input (paths/URLs/text) before coding.',
-    'Satisfy EVERY exit condition before declaring PASS. Exit actions run later — do not perform them yet.',
+    'Treat exit conditions as code-review rules: before PASS, review your changes against every exit (reject yourself if any fail).',
+    'Exit actions run later - do not perform them yet.',
     '',
     buildPinnedBlock(opts.pin),
     '',
@@ -146,8 +156,8 @@ export function buildImplementPrompt(opts: {
     'LOOP_CHANGED_FILES:',
     '<one repo-relative path per line; ONLY files you created or changed for this task>',
     '',
-    'Use PASS only when every exit condition is satisfied.',
-    'On FAIL, fix what you can this turn and list remaining failures.',
+    'Use PASS only after a code-review pass against every exit condition.',
+    'On FAIL, fix what you can this turn and list remaining review failures.',
     'If a github_pr exit action exists, the loop will commit/push ONLY LOOP_CHANGED_FILES.',
   );
   return parts.join('\n');
@@ -160,8 +170,9 @@ export function buildVerifyPrompt(opts: {
 }): string {
   return [
     `Loop verify iteration ${opts.iteration}.`,
-    'Re-read the exits manifest and verify every exit condition.',
-    'Fix failures in workspaceCwd. Do not invent other checklists.',
+    'Enter code-review mode: exit conditions are the review rules for this change.',
+    'Re-read AGENTS.md and the exits manifest. Check each exit against the actual diff/behavior.',
+    'Fix review failures in workspaceCwd. Do not invent other checklists.',
     'Do not run exit actions yet.',
     '',
     buildPinnedBlock(opts.pin),
@@ -177,7 +188,7 @@ export function buildVerifyPrompt(opts: {
     'LOOP_CHANGED_FILES:',
     '<one repo-relative path per line; ONLY files for this task>',
     '',
-    'PASS only when every exit condition is met.',
+    'PASS only when every review rule (exit condition) is met.',
   ].join('\n');
 }
 
@@ -188,7 +199,7 @@ export function buildActionsPrompt(opts: {
   return [
     'Loop exit-actions turn.',
     'Coding already PASSed. Execute the non-builtin exit actions below.',
-    'Builtin actions (e.g. github_pr) were already handled by memgrep — skip those.',
+    'Builtin actions (e.g. github_pr) were already handled by memgrep - skip those.',
     'Read the actions manifest. Follow each remaining action exactly.',
     '',
     buildPinnedBlock(opts.pin),
