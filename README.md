@@ -9,7 +9,7 @@ memgrep is a local control plane for Cursor. It started as searchable agent memo
 | Pillar | What it does |
 | --- | --- |
 | **Memory** | Ingest Cursor / Claude Code / Kiro chats. Hybrid recall (vector + keyword). `remember` playbooks and decisions. Fully local (SQLite + HNSW + on-device embeddings). |
-| **Loop** | Per-project coding loops: task in, exit conditions, exit actions (including `github_pr`). Runs until PASS, then optional PR / follow-ups. Profiles under `~/.memgrep/loops/<name>/`. |
+| **Loop** | Per-project coding loops: task in, exit conditions, exit actions (including `github_pr`). Runs until PASS, then optional PR / follow-ups. Editable config in `<cwd>/.memgrep/`; named pointer under `~/.memgrep/loops/<name>/`. |
 | **Telegram** | Allowlisted bot drives a **real** local Cursor agent (`@cursor/sdk`) in a real cwd, with memgrep MCP attached mid-task. |
 | **Jobs** | Cron + remembered playbook + Cursor. Schedule the workflows you already trust. |
 | **MCP** | One server for agents: memory + jobs + loop + optional suites (Cursor, Jira, Neon, gcloud, PostHog, Upstash, Product Hunt, …). |
@@ -242,7 +242,7 @@ memgrep loop run --task "Ship refunds health check" --profile prepaid   # foregr
 memgrep loop runs
 ```
 
-Profiles: `~/.memgrep/loops/<name>/` (template `~/.memgrep/loop.base/`). Active: `~/.memgrep/loop.active` or `MEMGREP_LOOP_PROFILE`. Legacy `~/.memgrep/loop.json` migrates once into `loops/default`.
+Config lives in the project at `<cwd>/.memgrep/` (edit in your IDE; safe to commit). Home keeps a thin pointer at `~/.memgrep/loops/<name>/project.json` and the template at `~/.memgrep/loop.base/`. Active: `~/.memgrep/loop.active` or `MEMGREP_LOOP_PROFILE`. Legacy home-only `loops/<name>/loop.json` still works until you re-init.
 
 MCP: `loop_run` starts detached in the background; also `loop_run_status`, `loop_status`, `loop_upsert_*` / `loop_remove_*`. Requires Cursor; Jira optional for `jiraKey` context only.
 

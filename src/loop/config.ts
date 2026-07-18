@@ -5,6 +5,7 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
+  rmSync,
   statSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -19,6 +20,10 @@ export const LOOP_DIR = 'loop';
 export const LOOP_BASE_DIR = 'loop.base';
 export const LOOPS_DIR = 'loops';
 export const LOOP_ACTIVE_FILE = 'loop.active';
+/** Thin home-profile pointer: { "projectRoot": "<abs path>" } */
+export const LOOP_PROJECT_LINK_FILE = 'project.json';
+/** Project-local store directory under the repo cwd */
+export const PROJECT_MEMGREP_DIR = '.memgrep';
 export const DEFAULT_LOOP_PROFILE = 'default';
 export const DEFAULT_LOOP_BASE_BRANCH = 'dev';
 export const DEFAULT_LOOP_MAX_ITERATIONS = 5;
@@ -72,6 +77,8 @@ export type LoopStore = {
   exitsManifestPath: string;
   actionsManifestPath: string;
   usingLegacy: boolean;
+  /** Absolute project root when store is `<cwd>/.memgrep/` */
+  projectRoot?: string;
 };
 
 export type ResolvedLoopConfig = {
@@ -90,12 +97,18 @@ export type ResolvedLoopConfig = {
   telegramProfile?: string;
   profile?: string;
   usingLegacy?: boolean;
+  /** Set when config lives in `<cwd>/.memgrep/` */
+  projectRoot?: string;
   configPath: string;
   dirPath: string;
   inputsManifestPath: string;
   exitsManifestPath: string;
   actionsManifestPath: string;
 };
+
+const projectLinkSchema = z.object({
+  projectRoot: z.string().min(1),
+});
 
 const artifactSchema = z.object({
   id: z.string().min(1),
@@ -153,6 +166,14 @@ export function loopProfileDir(profile: string, home = defaultHome()): string {
   return path.join(loopsRoot(home), validateProfileName(profile));
 }
 
+export function loopProjectLinkPath(profile: string, home = defaultHome()): string {
+  return path.join(loopProfileDir(profile, home), LOOP_PROJECT_LINK_FILE);
+}
+
+export function projectMemgrepDir(projectRoot: string): string {
+  return path.join(projectRoot, PROJECT_MEMGREP_DIR);
+}
+
 export function loopActivePath(home = defaultHome()): string {
   return path.join(home, LOOP_ACTIVE_FILE);
 }
@@ -189,6 +210,7 @@ function storeFromDir(
   dirPath: string,
   profile: string | null,
   usingLegacy: boolean,
+  projectRoot?: string,
 ): LoopStore {
   return {
     home,
@@ -201,7 +223,119 @@ function storeFromDir(
     exitsManifestPath: path.join(dirPath, 'exits.manifest.md'),
     actionsManifestPath: path.join(dirPath, 'actions.manifest.md'),
     usingLegacy,
+    projectRoot,
   };
+}
+
+function storeFromProject(
+  home: string,
+  projectRoot: string,
+  profile: string | null,
+): LoopStore {
+  const root = realpathSync(projectRoot);
+  return storeFromDir(home, projectMemgrepDir(root), profile, false, root);
+}
+
+export function readProjectLink(
+  profile: string,
+  home = defaultHome(),
+): { projectRoot: string } | undefined {
+  const filePath = loopProjectLinkPath(profile, home);
+  if (!existsSync(filePath)) return undefined;
+  try {
+    const raw = JSON.parse(readFileSync(filePath, 'utf8'));
+    const parsed = projectLinkSchema.safeParse(raw);
+    if (!parsed.success) return undefined;
+    const expanded = expandHomePath(parsed.data.projectRoot);
+    if (!existsSync(expanded)) return undefined;
+    return { projectRoot: realpathSync(expanded) };
+  } catch {
+    return undefined;
+  }
+}
+
+export function writeProjectLink(
+  profile: string,
+  projectRoot: string,
+  home = defaultHome(),
+): string {
+  const name = validateProfileName(profile);
+  const root = realpathSync(ensureDirectoryPath(projectRoot, 'projectRoot'));
+  const dir = loopProfileDir(name, home);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const linkPath = loopProjectLinkPath(name, home);
+  writeFileAtomic(linkPath, `${JSON.stringify({ projectRoot: root }, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  return linkPath;
+}
+
+function profileExists(profile: string, home: string): boolean {
+  const dir = loopProfileDir(profile, home);
+  return (
+    existsSync(loopProjectLinkPath(profile, home)) ||
+    existsSync(path.join(dir, LOOP_CONFIG_FILE))
+  );
+}
+
+/** If home profile still has loop.json and project already has .memgrep, link and prefer project. */
+function maybePromoteHomeProfileToProject(
+  profile: string,
+  home: string,
+): LoopStore | undefined {
+  const homeConfig = path.join(loopProfileDir(profile, home), LOOP_CONFIG_FILE);
+  if (!existsSync(homeConfig)) return undefined;
+  if (readProjectLink(profile, home)) {
+    const link = readProjectLink(profile, home)!;
+    const projectConfig = path.join(projectMemgrepDir(link.projectRoot), LOOP_CONFIG_FILE);
+    if (existsSync(projectConfig)) return storeFromProject(home, link.projectRoot, profile);
+  }
+  try {
+    const cfg = readConfigFile(homeConfig);
+    const projectConfig = path.join(projectMemgrepDir(cfg.cwd), LOOP_CONFIG_FILE);
+    if (!existsSync(projectConfig)) return undefined;
+    writeProjectLink(profile, cfg.cwd, home);
+    return storeFromProject(home, cfg.cwd, profile);
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveStoreForProfile(
+  profile: string,
+  home: string,
+  explicit: boolean,
+): LoopStore | undefined {
+  const link = readProjectLink(profile, home);
+  if (link) {
+    const projectConfig = path.join(projectMemgrepDir(link.projectRoot), LOOP_CONFIG_FILE);
+    if (existsSync(projectConfig)) {
+      return storeFromProject(home, link.projectRoot, profile);
+    }
+    if (explicit) {
+      throw new Error(
+        `loop profile "${profile}" points at ${link.projectRoot} but ${PROJECT_MEMGREP_DIR}/${LOOP_CONFIG_FILE} is missing. Run: memgrep loop init ${profile} --cwd ${link.projectRoot} --force`,
+      );
+    }
+  }
+
+  const promoted = maybePromoteHomeProfileToProject(profile, home);
+  if (promoted) return promoted;
+
+  const homeDir = loopProfileDir(profile, home);
+  if (existsSync(path.join(homeDir, LOOP_CONFIG_FILE))) {
+    return storeFromDir(home, homeDir, profile, false);
+  }
+  return undefined;
+}
+
+function findProfileForProjectRoot(projectRoot: string, home: string): string | null {
+  const root = realpathSync(projectRoot);
+  for (const name of listLoopProfiles(home)) {
+    const link = readProjectLink(name, home);
+    if (link?.projectRoot === root) return name;
+  }
+  return null;
 }
 
 export function getActiveLoopProfile(home = defaultHome()): string | undefined {
@@ -213,10 +347,9 @@ export function getActiveLoopProfile(home = defaultHome()): string | undefined {
 
 export function setActiveLoopProfile(profile: string, home = defaultHome()): string {
   const name = validateProfileName(profile);
-  const dir = loopProfileDir(name, home);
-  if (!existsSync(path.join(dir, LOOP_CONFIG_FILE))) {
+  if (!profileExists(name, home)) {
     throw new Error(
-      `loop profile "${name}" not found at ${dir}. Run: node dist/cli.js loop init ${name}`,
+      `loop profile "${name}" not found. Run: memgrep loop init ${name} --cwd <project>`,
     );
   }
   writeFileAtomic(loopActivePath(home), `${name}\n`, { mode: 0o600 });
@@ -227,7 +360,14 @@ export function listLoopProfiles(home = defaultHome()): string[] {
   const root = loopsRoot(home);
   if (!existsSync(root)) return [];
   return readdirSync(root, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && existsSync(path.join(root, d.name, LOOP_CONFIG_FILE)))
+    .filter((d) => {
+      if (!d.isDirectory()) return false;
+      const dir = path.join(root, d.name);
+      return (
+        existsSync(path.join(dir, LOOP_CONFIG_FILE)) ||
+        existsSync(path.join(dir, LOOP_PROJECT_LINK_FILE))
+      );
+    })
     .map((d) => d.name)
     .sort();
 }
@@ -249,7 +389,8 @@ export function resolveProfileName(
 
 /**
  * Resolve the on-disk store for reads/writes.
- * Prefer profiles; fall back to legacy ~/.memgrep/loop.json when no profile applies.
+ * Prefer project-local `<cwd>/.memgrep/` via profile project.json pointer;
+ * then home profile loop.json; then cwd discovery; then legacy.
  */
 export function getLoopStore(homeOrOpts?: LoopHomeOrOptions): LoopStore {
   const options = normalizeOptions(homeOrOpts);
@@ -258,29 +399,36 @@ export function getLoopStore(homeOrOpts?: LoopHomeOrOptions): LoopStore {
 
   const profile = resolveProfileName(options);
   if (profile) {
-    const dir = loopProfileDir(profile, home);
-    if (existsSync(path.join(dir, LOOP_CONFIG_FILE))) {
-      return storeFromDir(home, dir, profile, false);
-    }
+    const store = resolveStoreForProfile(profile, home, !!options.profile?.trim());
+    if (store) return store;
     if (options.profile?.trim()) {
       throw new Error(
-        `loop profile "${profile}" not found. Run: node dist/cli.js loop init ${profile}`,
+        `loop profile "${profile}" not found. Run: memgrep loop init ${profile} --cwd <project>`,
       );
     }
   }
 
-  // Active/env pointed at missing profile — try default profile, then legacy.
-  const defaultDir = loopProfileDir(DEFAULT_LOOP_PROFILE, home);
-  if (existsSync(path.join(defaultDir, LOOP_CONFIG_FILE))) {
-    return storeFromDir(home, defaultDir, DEFAULT_LOOP_PROFILE, false);
+  // No profile selected: prefer .memgrep in process.cwd() when present.
+  try {
+    const cwd = realpathSync(process.cwd());
+    const localConfig = path.join(projectMemgrepDir(cwd), LOOP_CONFIG_FILE);
+    if (existsSync(localConfig)) {
+      const linked = findProfileForProjectRoot(cwd, home);
+      return storeFromProject(home, cwd, linked);
+    }
+  } catch {
+    // ignore cwd resolution errors
   }
+
+  const defaultStore = resolveStoreForProfile(DEFAULT_LOOP_PROFILE, home, false);
+  if (defaultStore) return defaultStore;
 
   if (existsSync(legacyLoopConfigPath(home))) {
     return storeFromDir(home, loopDirPath(home), null, true);
   }
 
-  // Nothing configured yet — return default profile paths for writes/init.
-  return storeFromDir(home, defaultDir, DEFAULT_LOOP_PROFILE, false);
+  // Nothing configured yet — return default home profile paths for writes/init.
+  return storeFromDir(home, loopProfileDir(DEFAULT_LOOP_PROFILE, home), DEFAULT_LOOP_PROFILE, false);
 }
 
 export function resolveExistingPath(
@@ -553,7 +701,8 @@ export function migrateLegacyLoopIfNeeded(home = defaultHome()): boolean {
 }
 
 /**
- * Copy loop.base → loops/<name>, set cwd, optionally activate.
+ * Copy loop.base → <cwd>/.memgrep/, write home profile project.json pointer,
+ * optionally activate.
  */
 export function initLoopProfile(
   name: string,
@@ -563,7 +712,7 @@ export function initLoopProfile(
     setActive?: boolean;
     force?: boolean;
   } = {},
-): { profile: string; store: LoopStore; config: LoopConfig } {
+): { profile: string; store: LoopStore; config: LoopConfig; linkPath: string } {
   const home = options.home ?? defaultHome();
   const profile = validateProfileName(name);
   migrateLegacyLoopIfNeeded(home);
@@ -582,33 +731,62 @@ export function initLoopProfile(
       ? { cwd: options.cwd }
       : undefined);
 
-  const destDir = loopProfileDir(profile, home);
-  const destConfig = path.join(destDir, LOOP_CONFIG_FILE);
-  if (existsSync(destConfig) && !options.force) {
+  if (profileExists(profile, home) && !options.force) {
     throw new Error(
-      `loop profile "${profile}" already exists at ${destDir}. Use --force to overwrite from base.`,
+      `loop profile "${profile}" already exists. Use --force to overwrite from base.`,
+    );
+  }
+
+  const baseDir = loopBaseDir(home);
+  const baseConfig = path.join(baseDir, LOOP_CONFIG_FILE);
+  if (!existsSync(baseConfig)) {
+    throw new Error(`loop.base missing at ${baseDir}`);
+  }
+
+  const baseCfg = readConfigFile(baseConfig);
+  const projectRoot = ensureDirectoryPath(
+    options.cwd?.trim() || baseCfg.cwd || process.cwd(),
+    'cwd',
+  );
+  const projectDir = projectMemgrepDir(projectRoot);
+  const projectConfigPath = path.join(projectDir, LOOP_CONFIG_FILE);
+
+  if (existsSync(projectConfigPath) && !options.force && !profileExists(profile, home)) {
+    // Another profile may already own this project; allow linking only with --force
+    // when re-initing same name. Fresh name + existing project .memgrep needs force.
+    throw new Error(
+      `Project already has ${PROJECT_MEMGREP_DIR}/ at ${projectRoot}. Use --force to overwrite from base.`,
     );
   }
 
   mkdirSync(loopsRoot(home), { recursive: true, mode: 0o700 });
-  if (existsSync(destDir)) {
-    // Overwrite contents from base
-    cpSync(loopBaseDir(home), destDir, { recursive: true });
-  } else {
-    cpSync(loopBaseDir(home), destDir, { recursive: true });
-  }
+  mkdirSync(projectDir, { recursive: true, mode: 0o700 });
+  cpSync(baseDir, projectDir, { recursive: true });
 
-  const store = storeFromDir(home, destDir, profile, false);
+  const store = storeFromProject(home, projectRoot, profile);
   const current = readConfigFile(store.configPath);
-  const cwd = ensureDirectoryPath(options.cwd?.trim() || current.cwd, 'cwd');
-  const next = buildConfigPayload({ ...current, cwd }, current);
+  const next = buildConfigPayload({ ...current, cwd: projectRoot }, current);
   writeConfigToStore(next, store);
+
+  const homeProfileDir = loopProfileDir(profile, home);
+  mkdirSync(homeProfileDir, { recursive: true, mode: 0o700 });
+  // Pointer-only home profile: drop any previous home loop.json / manifests.
+  for (const file of [
+    LOOP_CONFIG_FILE,
+    'inputs.manifest.md',
+    'exits.manifest.md',
+    'actions.manifest.md',
+  ]) {
+    const p = path.join(homeProfileDir, file);
+    if (existsSync(p)) rmSync(p, { force: true });
+  }
+  const linkPath = writeProjectLink(profile, projectRoot, home);
 
   if (options.setActive !== false) {
     writeFileAtomic(loopActivePath(home), `${profile}\n`, { mode: 0o600 });
   }
 
-  return { profile, store, config: next };
+  return { profile, store, config: next, linkPath };
 }
 
 export function readLoopConfig(homeOrOpts?: LoopHomeOrOptions): LoopConfig | null {
@@ -642,10 +820,10 @@ export function writeLoopConfig(
 
   let profile = resolveProfileName(options);
   if (!profile) {
-    // First write: create default profile from base.
+    // First write: create default project-local profile from base.
     ensureLoopBase(home, { cwd: config.cwd, git: config.git });
     profile = DEFAULT_LOOP_PROFILE;
-    if (!existsSync(path.join(loopProfileDir(profile, home), LOOP_CONFIG_FILE))) {
+    if (!profileExists(profile, home)) {
       initLoopProfile(profile, {
         home,
         cwd: config.cwd,
@@ -657,7 +835,7 @@ export function writeLoopConfig(
     }
   }
 
-  const store = storeFromDir(home, loopProfileDir(profile, home), profile, false);
+  const store = getLoopStore({ ...options, home, profile });
   const existing = existsSync(store.configPath) ? readConfigFile(store.configPath) : null;
   const next = buildConfigPayload(config, existing);
   writeConfigToStore(next, store);
@@ -814,6 +992,7 @@ export function resolveLoopConfig(
       telegramProfile: file.telegramProfile?.trim() || undefined,
       profile: store.profile ?? undefined,
       usingLegacy: store.usingLegacy,
+      projectRoot: store.projectRoot,
       configPath: store.configPath,
       dirPath: store.dirPath,
       inputsManifestPath: store.inputsManifestPath,

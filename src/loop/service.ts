@@ -96,6 +96,9 @@ export class LoopService {
       `  telegramProfile:  ${this.config.telegramProfile ?? '(default)'}`,
       `  config:           ${this.config.configPath}`,
     ];
+    if (this.config.projectRoot) {
+      lines.push(`  project:          ${this.config.projectRoot}`);
+    }
     if (this.config.usingLegacy) {
       lines.push(
         '  warning:         using legacy ~/.memgrep/loop.json — run loop init <name>',

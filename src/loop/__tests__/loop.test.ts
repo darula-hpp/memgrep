@@ -19,9 +19,12 @@ import {
   legacyLoopConfigPath,
   listLoopProfiles,
   loopProfileDir,
+  loopProjectLinkPath,
   mergeArtifacts,
   migrateLegacyLoopIfNeeded,
+  projectMemgrepDir,
   readLoopConfig,
+  readProjectLink,
   resolveLoopConfig,
   setActiveLoopProfile,
   upsertLoopAction,
@@ -73,7 +76,7 @@ function touchFile(home: string, rel: string, body = 'x\n'): string {
 }
 
 describe('loop config + manifests', () => {
-  it('writes config and regenerates three manifests under loops/default', () => {
+  it('writes config into project .memgrep and a home project.json pointer', () => {
     const home = tempHome();
     const cwd = path.join(home, 'repo');
     mkdirSync(cwd, { recursive: true });
@@ -113,7 +116,10 @@ describe('loop config + manifests', () => {
     );
 
     const scope = { home };
-    expect(existsSync(path.join(loopProfileDir('default', home), 'loop.json'))).toBe(true);
+    expect(existsSync(path.join(projectMemgrepDir(cwd), 'loop.json'))).toBe(true);
+    expect(existsSync(loopProjectLinkPath('default', home))).toBe(true);
+    expect(existsSync(path.join(loopProfileDir('default', home), 'loop.json'))).toBe(false);
+    expect(readProjectLink('default', home)?.projectRoot).toBe(realpathSync(cwd));
     expect(getActiveLoopProfile(home)).toBe('default');
     expect(readFileSync(inputsManifestPath(scope), 'utf8')).toContain('## architecture');
     expect(readFileSync(exitsManifestPath(scope), 'utf8')).toContain('## tests');
@@ -156,23 +162,33 @@ describe('loop config + manifests', () => {
 });
 
 describe('loop profiles', () => {
-  it('init creates missing cwd directory', () => {
+  it('init creates missing cwd and project-local .memgrep', () => {
     const home = tempHome();
     const cwd = path.join(home, 'new-repo');
     expect(existsSync(cwd)).toBe(false);
 
-    const { config } = initLoopProfile('memgrep-mm', { home, cwd, setActive: true });
+    const { config, store, linkPath } = initLoopProfile('memgrep-mm', {
+      home,
+      cwd,
+      setActive: true,
+    });
     expect(existsSync(cwd)).toBe(true);
     expect(config.cwd).toBe(realpathSync(cwd));
+    expect(store.configPath).toBe(path.join(projectMemgrepDir(realpathSync(cwd)), 'loop.json'));
+    expect(existsSync(store.configPath)).toBe(true);
+    expect(existsSync(linkPath)).toBe(true);
+    expect(existsSync(path.join(loopProfileDir('memgrep-mm', home), 'loop.json'))).toBe(false);
   });
 
-  it('init copies base and isolates upserts across profiles', () => {
+  it('init copies base into each project and isolates upserts across profiles', () => {
     const home = tempHome();
-    const cwd = path.join(home, 'repo');
-    mkdirSync(cwd, { recursive: true });
+    const cwdA = path.join(home, 'launchpad-repo');
+    const cwdB = path.join(home, 'prepaid-repo');
+    mkdirSync(cwdA, { recursive: true });
+    mkdirSync(cwdB, { recursive: true });
 
-    initLoopProfile('launchpad', { home, cwd, setActive: true });
-    initLoopProfile('prepaid', { home, cwd, setActive: false });
+    initLoopProfile('launchpad', { home, cwd: cwdA, setActive: true });
+    initLoopProfile('prepaid', { home, cwd: cwdB, setActive: false });
 
     upsertLoopExit(
       { id: 'sso', kind: 'text', value: 'GitHub SSO required', label: 'SSO' },
@@ -187,15 +203,24 @@ describe('loop profiles', () => {
     const prepaid = readLoopConfig({ home, profile: 'prepaid' })!;
     expect(launchpad.defaults.exits.map((e) => e.id)).toEqual(['sso']);
     expect(prepaid.defaults.exits.map((e) => e.id)).toEqual(['billing']);
+    expect(existsSync(path.join(projectMemgrepDir(cwdA), 'exits.manifest.md'))).toBe(true);
+    expect(readFileSync(path.join(projectMemgrepDir(cwdA), 'exits.manifest.md'), 'utf8')).toContain(
+      '## sso',
+    );
+    expect(readFileSync(path.join(projectMemgrepDir(cwdB), 'exits.manifest.md'), 'utf8')).toContain(
+      '## billing',
+    );
     expect(listLoopProfiles(home)).toEqual(['launchpad', 'prepaid']);
   });
 
   it('setActiveLoopProfile switches resolveLoopConfig defaults', () => {
     const home = tempHome();
-    const cwd = path.join(home, 'repo');
-    mkdirSync(cwd, { recursive: true });
-    initLoopProfile('a', { home, cwd, setActive: true });
-    initLoopProfile('b', { home, cwd, setActive: false });
+    const cwdA = path.join(home, 'repo-a');
+    const cwdB = path.join(home, 'repo-b');
+    mkdirSync(cwdA, { recursive: true });
+    mkdirSync(cwdB, { recursive: true });
+    initLoopProfile('a', { home, cwd: cwdA, setActive: true });
+    initLoopProfile('b', { home, cwd: cwdB, setActive: false });
     upsertLoopInput(
       { id: 'from-a', kind: 'text', value: 'A', label: 'A' },
       { home, profile: 'a' },
@@ -208,7 +233,31 @@ describe('loop profiles', () => {
     setActiveLoopProfile('b', home);
     const resolved = resolveLoopConfig(home)!;
     expect(resolved.profile).toBe('b');
+    expect(resolved.projectRoot).toBe(realpathSync(cwdB));
     expect(resolved.defaults.inputs.map((i) => i.id)).toEqual(['from-b']);
+  });
+
+  it('prefers existing project .memgrep when home profile still has loop.json', () => {
+    const home = tempHome();
+    const cwd = path.join(home, 'repo');
+    mkdirSync(cwd, { recursive: true });
+    initLoopProfile('legacy-shaped', { home, cwd, setActive: true });
+
+    // Simulate old home-resident config + project copy already present.
+    const homeDir = loopProfileDir('legacy-shaped', home);
+    mkdirSync(homeDir, { recursive: true });
+    writeFileSync(
+      path.join(homeDir, 'loop.json'),
+      readFileSync(path.join(projectMemgrepDir(cwd), 'loop.json'), 'utf8'),
+    );
+    rmSync(loopProjectLinkPath('legacy-shaped', home), { force: true });
+
+    const resolved = resolveLoopConfig({ home, profile: 'legacy-shaped' })!;
+    expect(resolved.projectRoot).toBe(realpathSync(cwd));
+    expect(resolved.configPath).toBe(
+      path.join(projectMemgrepDir(realpathSync(cwd)), 'loop.json'),
+    );
+    expect(readProjectLink('legacy-shaped', home)?.projectRoot).toBe(realpathSync(cwd));
   });
 
   it('migrates legacy loop.json into loops/default and seeds loop.base', () => {

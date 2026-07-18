@@ -9,13 +9,19 @@ The loop is an agnostic coding cycle: free-text task, pinned inputs, exit condit
 
 ## Profiles
 
-Defaults are per project under `~/.memgrep/loops/<name>/`, copied from `~/.memgrep/loop.base/`.
+Editable config lives in the **project**:
+
+`<cwd>/.memgrep/loop.json` (plus input/exit/action manifests)
+
+The global template stays at `~/.memgrep/loop.base/`. A thin named pointer is stored at `~/.memgrep/loops/<name>/project.json` so `loop use` / active profile still work.
 
 ```bash
 memgrep loop init launchpad --cwd ~/dev/project
 memgrep loop use launchpad
 memgrep loop status
 ```
+
+Open `<repo>/.memgrep/` in your IDE to edit defaults. Commit that folder if the team should share exits/actions.
 
 ## Run
 

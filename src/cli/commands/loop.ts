@@ -100,22 +100,25 @@ export function registerLoopCommand(program: Command): void {
 
   loop
     .command('init')
-    .description('Copy loop.base into a new project profile under ~/.memgrep/loops/<name>/')
+    .description(
+      'Create project-local .memgrep/ from loop.base and a home profile pointer (~/.memgrep/loops/<name>/project.json)',
+    )
     .argument('<name>', 'Profile name (e.g. launchpad)')
-    .option('--cwd <path>', 'Workspace cwd for this profile (created if missing)')
-    .option('--force', 'Overwrite existing profile from base')
+    .option('--cwd <path>', 'Project directory (created if missing; config lands in <cwd>/.memgrep/)')
+    .option('--force', 'Overwrite project .memgrep/ from base and refresh home pointer')
     .option('--no-activate', 'Do not set this profile as active')
     .action(async (name: string, opts: { cwd?: string; force?: boolean; activate?: boolean }) => {
       await loadDotenv();
       try {
         const { initLoopProfile } = await import('../../loop/config.js');
-        const { profile, store, config } = initLoopProfile(name, {
+        const { profile, store, config, linkPath } = initLoopProfile(name, {
           cwd: opts.cwd,
           force: !!opts.force,
           setActive: opts.activate !== false,
         });
         console.log(`Initialized loop profile "${profile}"`);
         console.log(`  config: ${store.configPath}`);
+        console.log(`  link:   ${linkPath}`);
         console.log(`  cwd:    ${config.cwd}`);
         if (opts.activate !== false) console.log('  active: yes');
       } catch (error) {
@@ -130,10 +133,18 @@ export function registerLoopCommand(program: Command): void {
     .action(async (name: string) => {
       await loadDotenv();
       try {
-        const { setActiveLoopProfile, loopProfileDir } = await import('../../loop/config.js');
+        const { setActiveLoopProfile, resolveLoopConfig, loopProjectLinkPath } = await import(
+          '../../loop/config.js'
+        );
         const profile = setActiveLoopProfile(name);
+        const resolved = resolveLoopConfig({ profile });
         console.log(`Active loop profile: ${profile}`);
-        console.log(`  dir: ${loopProfileDir(profile)}`);
+        if (resolved) {
+          console.log(`  config: ${resolved.configPath}`);
+          if (resolved.projectRoot) console.log(`  project: ${resolved.projectRoot}`);
+        } else {
+          console.log(`  link: ${loopProjectLinkPath(profile)}`);
+        }
       } catch (error) {
         fail(error instanceof Error ? error.message : String(error));
       }

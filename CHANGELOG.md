@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Project-local loop config** - `loop init` writes editable config to `<cwd>/.memgrep/` (`loop.json` + manifests). Home profile is a thin `~/.memgrep/loops/<name>/project.json` pointer. Template stays at `~/.memgrep/loop.base/`. Upserts/status/run resolve through the project store; existing home-only profiles still work, and a home `loop.json` auto-links if the project `.memgrep/` already exists.
+
 ## [1.5.2] - 2026-07-18
 
 ### Fixed

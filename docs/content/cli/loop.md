@@ -15,4 +15,7 @@ memgrep loop runs [runId]
 memgrep loop input|exit|action set|rm ...
 ```
 
-Profiles: `~/.memgrep/loops/<name>/`. Template: `~/.memgrep/loop.base/`. Active: `~/.memgrep/loop.active`.
+- Project config: `<cwd>/.memgrep/` (`loop.json` + manifests)
+- Home pointer: `~/.memgrep/loops/<name>/project.json`
+- Template: `~/.memgrep/loop.base/`
+- Active: `~/.memgrep/loop.active`
