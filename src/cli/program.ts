@@ -1,5 +1,9 @@
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { registerCopyCommand } from './commands/copy.js';
+
+const require = createRequire(import.meta.url);
+const { version: PACKAGE_VERSION } = require('../../package.json') as { version: string };
 import { registerDeleteCommand } from './commands/delete.js';
 import { registerIndexCommand } from './commands/index.js';
 import { registerIngestCommand } from './commands/ingest.js';
@@ -29,7 +33,7 @@ export function createProgram(): Command {
     .description(
       'Local agent memory + Cursor from your phone (Telegram), scheduled jobs, MCP, and semantic file search',
     )
-    .version('1.0.0')
+    .version(PACKAGE_VERSION)
     .showHelpAfterError()
     .configureHelp({ sortSubcommands: true })
     .action(() => {

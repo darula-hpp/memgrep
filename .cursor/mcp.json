@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "memgrep": {
-      "command": "/Users/olebogengmbedzi/.nvm/versions/node/v20.20.2/bin/node",
-      "args": ["${workspaceFolder}/dist/cli.js", "serve"]
+      "command": "${userHome}/.nvm/versions/node/v20.20.2/bin/memgrep",
+      "args": ["serve"]
     }
   }
 }

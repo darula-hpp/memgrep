@@ -1,6 +1,6 @@
 {
   "name": "memgrep",
-  "version": "1.4.0",
+  "version": "1.5.1",
   "description": "Local agent memory, coding loop, Cursor from Telegram, scheduled playbooks, and MCP tools.",
   "keywords": [
     "semantic-search",
