@@ -19,6 +19,7 @@ import { registerNeonCommand } from './commands/neon.js';
 import { registerUpstashCommand } from './commands/upstash.js';
 import { registerGcloudCommand } from './commands/gcloud.js';
 import { registerCursorCommand } from './commands/cursor.js';
+import { registerLoopCommand } from './commands/loop.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -55,6 +56,7 @@ export function createProgram(): Command {
   registerUpstashCommand(program);
   registerGcloudCommand(program);
   registerCursorCommand(program);
+  registerLoopCommand(program);
 
   return program;
 }

@@ -143,7 +143,12 @@ export function createCursorProvider(): CodingAgentProvider {
     },
 
     isRetryableError(error: unknown): boolean {
-      return error instanceof CursorAgentError && error.isRetryable;
+      if (error instanceof CursorAgentError && error.isRetryable) return true;
+      const msg = error instanceof Error ? error.message : String(error);
+      // Connect/HTTP2 transport drops mid-turn — worth one fresh-session retry.
+      return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|socket hang up|\[aborted\]|ConnectError/i.test(
+        msg,
+      );
     },
   };
 }

@@ -41,6 +41,9 @@ import { GcloudTools } from '../gcloud/tools.js';
 import { resolveCursorConfig } from '../cursor/config.js';
 import { CursorAgentService } from '../cursor/service.js';
 import { CursorTools } from '../cursor/tools.js';
+import { resolveLoopConfig } from '../loop/config.js';
+import { LoopService } from '../loop/service.js';
+import { LoopTools } from '../loop/tools.js';
 
 function openJobsTools(storeDir?: string): { jobs: JobsTools; closeJobs: () => void } {
   const jobStore = JobStore.open(storeDir);
@@ -107,6 +110,26 @@ function openCursorTools(storeDir?: string): CursorTools | undefined {
   return new CursorTools(new CursorAgentService(config));
 }
 
+/**
+ * Loop needs loop.json + Cursor. Jira is optional (only for jiraKey enrichment).
+ */
+function openLoopTools(memory: MemoryTools, storeDir?: string): LoopTools | undefined {
+  const loopConfig = resolveLoopConfig(storeDir);
+  const cursorConfig = resolveCursorConfig(process.env, storeDir);
+  if (!loopConfig || !cursorConfig) return undefined;
+  const jiraConfig = resolveJiraConfig(process.env, storeDir);
+  const service = new LoopService(
+    loopConfig,
+    new CursorAgentService(cursorConfig),
+    memory,
+    jiraConfig ? new JiraService(new JiraClient(jiraConfig)) : undefined,
+  );
+  return new LoopTools(
+    service,
+    { cursorReady: true, jiraReady: !!jiraConfig },
+    { home: storeDir },
+  );
+}
 export type ServeTransport = 'stdio' | 'http';
 
 export type ServeOptions = {
@@ -214,6 +237,7 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
   const upstash = openUpstashTools(storeDir);
   const gcloud = openGcloudTools(storeDir);
   const cursor = openCursorTools(storeDir);
+  const loop = openLoopTools(tools, storeDir);
   const server = createMemgrepMcpServer(tools, {
     jobs,
     jira,
@@ -223,6 +247,7 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
     upstash,
     gcloud,
     cursor,
+    loop,
   });
   await server.connect(new StdioServerTransport());
 }
@@ -253,6 +278,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   const upstash = openUpstashTools(options.storeDir);
   const gcloud = openGcloudTools(options.storeDir);
   const cursor = openCursorTools(options.storeDir);
+  const loop = openLoopTools(tools, options.storeDir);
 
   // Loopback bind + public tunnel Host header: allow configured tunnel hostname.
   const allowedHosts = resolveAllowedHosts(process.env, options.storeDir, options.allowedHosts);
@@ -284,6 +310,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
       upstash,
       gcloud,
       cursor,
+      loop,
     });
     try {
       const transport = new StreamableHTTPServerTransport({

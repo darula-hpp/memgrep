@@ -18,8 +18,9 @@ export type CursorRunInput = {
   mode?: string;
   /** Resume an existing agent id; otherwise create a new one. */
   agentId?: string;
+  /** Override per-turn agent wait timeout (ms). Defaults to AGENT_RUN_TIMEOUT_MS. */
+  timeoutMs?: number;
 };
-
 /**
  * Local Cursor agent runs for MCP/CLI — cwd restricted to configured workspaces.
  */
@@ -111,17 +112,19 @@ export class CursorAgentService {
     try {
       let turn = await runAgentTurn(session, prompt, {
         mode,
+        timeoutMs: input.timeoutMs,
         providerId: this.provider.id,
         isRetryableError: (e) => this.provider.isRetryableError?.(e) === true,
         logPrefix: 'memgrep cursor-mcp',
       });
 
-      // Busy or opaque error: dispose and retry once with a fresh agent.
-      if (!turn.ok && (turn.kind === 'busy' || turn.opaque)) {
+      // Busy, opaque, or retryable transport error: dispose and retry once with a fresh agent.
+      if (!turn.ok && (turn.kind === 'busy' || turn.opaque || turn.retryable)) {
         await session.dispose().catch(() => undefined);
         session = await this.provider.create(ctx);
         turn = await runAgentTurn(session, prompt, {
           mode,
+          timeoutMs: input.timeoutMs,
           providerId: this.provider.id,
           isRetryableError: (e) => this.provider.isRetryableError?.(e) === true,
           logPrefix: 'memgrep cursor-mcp',

@@ -1,7 +1,7 @@
 {
   "name": "memgrep",
   "version": "1.4.0",
-  "description": "Telegram → Cursor agent + searchable local memory for playbooks you reuse (and schedule with memgrep jobs).",
+  "description": "Local agent memory, coding loop, Cursor from Telegram, scheduled playbooks, and MCP tools.",
   "keywords": [
     "semantic-search",
     "vector-search",

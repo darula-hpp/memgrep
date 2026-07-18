@@ -1,0 +1,16 @@
+{
+  "framework": "nextjs",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "memgrep-docs.vercel.app"
+        }
+      ],
+      "destination": "https://memgrep.getuigen.dev/:path*",
+      "permanent": true
+    }
+  ]
+}

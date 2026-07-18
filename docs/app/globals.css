@@ -1,0 +1,176 @@
+@import "tailwindcss";
+@import "highlight.js/styles/github-dark.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Gitwork-inspired theme: zinc + teal (shimmer-from-structure) */
+@theme {
+  --font-sans: var(--font-plex);
+  --font-mono: var(--font-jetbrains);
+
+  --color-bg: var(--mg-bg);
+  --color-bg-deep: var(--mg-bg-deep);
+  --color-panel: var(--mg-panel);
+  --color-surface: var(--mg-surface);
+  --color-surface-2: var(--mg-surface-2);
+  --color-line: var(--mg-line);
+
+  --color-ink: var(--mg-ink);
+  --color-ink-dim: var(--mg-ink-dim);
+  --color-ink-soft: var(--mg-ink-soft);
+  --color-ink-faint: var(--mg-ink-faint);
+
+  --color-brand: #14b8a6;
+  --color-brand-hi: #2dd4bf;
+  --color-brand-mid: #0d9488;
+  --color-brand-deep: #0f766e;
+  --color-brand-fg: #042f2e;
+
+  --color-background: var(--mg-bg);
+  --color-foreground: var(--mg-ink);
+  --color-primary: var(--color-brand);
+  --color-primary-dark: var(--color-brand-mid);
+  --color-border: var(--mg-line);
+}
+
+:root,
+.dark {
+  --mg-bg: #0a0a0a;
+  --mg-bg-deep: #050505;
+  --mg-panel: #18181b;
+  --mg-surface: #18181b;
+  --mg-surface-2: #27272a;
+  --mg-line: #27272a;
+  --mg-ink: #fafafa;
+  --mg-ink-dim: #e4e4e7;
+  --mg-ink-soft: #a1a1aa;
+  --mg-ink-faint: #71717a;
+  --mg-glow: rgba(20, 184, 166, 0.12);
+  color-scheme: dark;
+}
+
+.light {
+  --mg-bg: #fafafa;
+  --mg-bg-deep: #f4f4f5;
+  --mg-panel: #ffffff;
+  --mg-surface: #ffffff;
+  --mg-surface-2: #f4f4f5;
+  --mg-line: #e4e4e7;
+  --mg-ink: #18181b;
+  --mg-ink-dim: #27272a;
+  --mg-ink-soft: #52525b;
+  --mg-ink-faint: #71717a;
+  --mg-glow: rgba(20, 184, 166, 0.14);
+  color-scheme: light;
+}
+
+@layer base {
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    background:
+      radial-gradient(120% 80% at 50% -20%, var(--mg-glow), transparent 55%),
+      var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-brand) 35%, transparent);
+  }
+}
+
+/* Docs prose */
+.prose {
+  color: var(--color-ink-dim);
+  line-height: 1.75;
+}
+.prose :where(h1, h2, h3, h4) {
+  color: var(--color-ink);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  scroll-margin-top: 5rem;
+}
+.prose h1 {
+  font-size: 2rem;
+  margin: 0 0 1rem;
+}
+.prose h2 {
+  font-size: 1.35rem;
+  margin: 2rem 0 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-line);
+}
+.prose h3 {
+  font-size: 1.1rem;
+  margin: 1.5rem 0 0.5rem;
+}
+.prose p,
+.prose ul,
+.prose ol {
+  margin: 0.85rem 0;
+}
+.prose a {
+  color: var(--color-brand-hi);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.prose code {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.9em;
+  background: var(--color-surface-2);
+  padding: 0.15em 0.4em;
+  border-radius: 0.35rem;
+}
+.prose pre {
+  background: #09090b;
+  border: 1px solid var(--color-line);
+  border-radius: 0.75rem;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  margin: 1.25rem 0;
+}
+.prose pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.85rem;
+}
+.light .prose pre {
+  background: #18181b;
+  color: #fafafa;
+}
+
+/* Landing terminal: always dark shell, readable in light mode */
+.terminal-window {
+  background: #09090b;
+}
+.terminal-code {
+  color: #e4e4e7;
+}
+.terminal-prompt {
+  color: #a1a1aa;
+}
+.terminal-cmd {
+  color: #2dd4bf;
+}
+.terminal-string {
+  color: #fde047;
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.25rem 0;
+  font-size: 0.9rem;
+}
+.prose th,
+.prose td {
+  border: 1px solid var(--color-line);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.prose th {
+  background: var(--color-surface-2);
+  color: var(--color-ink);
+}
