@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-07-18
+
+### Added
+
+- **Loop `AGENTS.md`** - seeded into `~/.memgrep/loop.base/` and copied into each project `<cwd>/.memgrep/` on init; planted on resolve if missing. Guide covers adding inputs/exits/actions (CLI + MCP), artifact kinds, and `LOOP_*` trailers. Implement/verify prompts point agents at it.
+
+## [1.5.3] - 2026-07-18
+
 ### Added
 
 - **Project-local loop config** - `loop init` writes editable config to `<cwd>/.memgrep/` (`loop.json` + manifests). Home profile is a thin `~/.memgrep/loops/<name>/project.json` pointer. Template stays at `~/.memgrep/loop.base/`. Upserts/status/run resolve through the project store; existing home-only profiles still work, and a home `loop.json` auto-links if the project `.memgrep/` already exists.
-- **Loop `AGENTS.md`** - seeded into `~/.memgrep/loop.base/` and copied into each project `<cwd>/.memgrep/` on init; planted on resolve if missing. Guide covers adding inputs/exits/actions (CLI + MCP), artifact kinds, and `LOOP_*` trailers. Implement/verify prompts point agents at it.
 
 ## [1.5.2] - 2026-07-18
 
@@ -175,7 +182,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SQLite + HNSW index with self-healing (rebuilds the vector cache from the database after crashes or interrupted ingests).
 - Idempotent ingestion by content hash; manual notes via `remember` land in the same searchable memory.
 
-[Unreleased]: https://github.com/darula-hpp/memgrep/compare/v1.5.2...HEAD
+[Unreleased]: https://github.com/darula-hpp/memgrep/compare/v1.5.4...HEAD
+[1.5.4]: https://github.com/darula-hpp/memgrep/compare/v1.5.3...v1.5.4
+[1.5.3]: https://github.com/darula-hpp/memgrep/compare/v1.5.2...v1.5.3
 [1.5.2]: https://github.com/darula-hpp/memgrep/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/darula-hpp/memgrep/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/darula-hpp/memgrep/compare/v1.4.0...v1.5.0
