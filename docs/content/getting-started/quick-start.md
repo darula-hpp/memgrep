@@ -18,6 +18,13 @@ memgrep copy
 
 `ingest` indexes chat history (incremental after the first run). `copy` puts the top hit on the clipboard.
 
+Keep memory fresh on macOS without a manual ingest:
+
+```bash
+memgrep ingest install
+memgrep ingest service
+```
+
 ## 2. Cursor from your phone
 
 ```bash
@@ -49,5 +56,6 @@ memgrep jobs run smoke-5m
 | --- | --- | --- |
 | Telegram bots + MCP | `memgrep telegram install` | `memgrep telegram service` |
 | Jobs scheduler | `memgrep jobs install` | `memgrep jobs service` |
+| Background ingest | `memgrep ingest install` | `memgrep ingest service` |
 
 Telegram + Cursor + jobs need network and a `CURSOR_API_KEY` from the Cursor dashboard.

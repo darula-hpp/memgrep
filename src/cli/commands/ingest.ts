@@ -160,9 +160,77 @@ function optionalFlagValue(value: unknown): string | undefined {
 }
 
 export function registerIngestCommand(program: Command): void {
-  program
+  const ingest = program
     .command('ingest')
-    .description('Ingest agent chat history into memory')
+    .description('Ingest agent chat history into memory (one-shot or background daemon)');
+
+  ingest
+    .command('daemon')
+    .description('Run background ingest on an interval (reads ~/.memgrep/ingest.json)')
+    .option('--interval <duration>', 'override interval (e.g. 15m, 1h, 3600)')
+    .option('--source <list>', 'comma-separated sources: cursor,claude,kiro')
+    .action(async (opts: { interval?: string; source?: string }) => {
+      try {
+        const { runIngestDaemon } = await import('../../ingest/daemon.js');
+        await runIngestDaemon({
+          interval: opts.interval,
+          sources: parseSourceList(opts.source),
+        });
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+  ingest
+    .command('install')
+    .description('Install a macOS LaunchAgent for the ingest daemon')
+    .option('--interval <duration>', 'interval to persist (default: 1h, or keep existing config)')
+    .option('--source <list>', 'comma-separated sources: cursor,claude,kiro')
+    .action(async (opts: { interval?: string; source?: string }) => {
+      if (process.platform !== 'darwin') fail('LaunchAgent install is only supported on macOS.');
+      try {
+        const { installIngestLaunchdService, formatIngestServiceStatus } = await import(
+          '../../ingest/launchd.js'
+        );
+        const status = installIngestLaunchdService({
+          interval: opts.interval,
+          sources: parseSourceList(opts.source),
+        });
+        console.log(`Installed LaunchAgent: ${status.label}`);
+        for (const line of formatIngestServiceStatus(status)) {
+          console.log(line);
+        }
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+  ingest
+    .command('uninstall')
+    .description('Remove the ingest LaunchAgent')
+    .action(async () => {
+      if (process.platform !== 'darwin') fail('LaunchAgent uninstall is only supported on macOS.');
+      const { uninstallIngestLaunchdService } = await import('../../ingest/launchd.js');
+      const status = uninstallIngestLaunchdService();
+      console.log(
+        status.installed ? `Still present: ${status.plistPath}` : 'Removed ingest LaunchAgent.',
+      );
+    });
+
+  ingest
+    .command('service')
+    .description('Show ingest LaunchAgent status')
+    .action(async () => {
+      const { getIngestLaunchdStatus, formatIngestServiceStatus } = await import(
+        '../../ingest/launchd.js'
+      );
+      const status = getIngestLaunchdStatus();
+      for (const line of formatIngestServiceStatus(status)) {
+        console.log(line);
+      }
+    });
+
+  ingest
     .argument('[files...]', 'specific chat files to ingest (format auto-detected)')
     .option('--source <list>', 'comma-separated sources: cursor,claude,kiro')
     .option('--pick [indices]', 'ingest by number from last scan, or interactive menu if no value')

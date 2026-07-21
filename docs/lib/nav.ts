@@ -34,6 +34,7 @@ export const nav: NavSection[] = [
     pages: [
       { title: 'Telegram + Cursor', slug: 'telegram-cursor' },
       { title: 'Scheduled Jobs', slug: 'scheduled-jobs' },
+      { title: 'Background Ingest', slug: 'background-ingest' },
       { title: 'Coding Loop', slug: 'coding-loop' },
       { title: 'MCP Setup', slug: 'mcp-setup' },
     ],

@@ -93,21 +93,23 @@ MCP stays on `http://127.0.0.1:3921/mcp`. Public tunnels are opt-in (any vendor)
 | --- | --- | --- | --- |
 | Telegram bots + MCP | `memgrep telegram install` / `--all` | `memgrep telegram service` | `~/.memgrep/logs/telegram-launchd.log` |
 | Jobs scheduler | `memgrep jobs install` | `memgrep jobs service` | `~/.memgrep/logs/jobs-launchd.log` |
+| Background ingest | `memgrep ingest install` | `memgrep ingest service` | `~/.memgrep/logs/ingest-launchd.log` |
 
-After upgrade: stop foreground pollers, re-run `telegram install` / `jobs install`, confirm **Loaded: yes**. Restart:
+After upgrade: stop foreground pollers, re-run `telegram install` / `jobs install` / `ingest install`, confirm **Loaded: yes**. Restart:
 
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.memgrep.telegram
 launchctl kickstart -k gui/$(id -u)/com.memgrep.jobs
+launchctl kickstart -k gui/$(id -u)/com.memgrep.ingest
 ```
 
-Both pause while the Mac sleeps; missed job ticks beyond a 6h grace window are skipped.
+These pause while the Mac sleeps; missed job ticks beyond a 6h grace window are skipped.
 
 ## Command map
 
 ```bash
 # Memory
-memgrep scan | ingest | remember | list | recall | show | copy | delete
+memgrep scan | ingest | ingest install | remember | list | recall | show | copy | delete
 
 # Loop (per-project profiles)
 memgrep loop init <name> [--cwd <path>]
@@ -345,7 +347,7 @@ Also exported: `Embedder`, `chunkText`, `MemoryStore`, `ingestTranscripts`, and 
 
 - Tombstones so `delete` survives re-ingest
 - More transcript sources (Antigravity if the format opens, Codex CLI, Windsurf)
-- Watch mode / continuous ingest
+- File-watch ingest (`--watch`) on top of the interval daemon
 - Linux systemd units alongside macOS LaunchAgents
 - Telegram `/jobs` slash shortcuts (MCP already covers manage-from-chat)
 - Browser / WASM HNSW for the library

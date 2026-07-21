@@ -126,7 +126,7 @@ describe('createProgram', () => {
     ]);
   });
 
-  it('exposes expected ingest options', () => {
+  it('exposes expected ingest options and background subcommands', () => {
     const program = createProgram();
     const ingest = program.commands.find((c) => c.name() === 'ingest');
     expect(ingest).toBeDefined();
@@ -140,6 +140,8 @@ describe('createProgram', () => {
         '--project <name>',
       ]),
     );
+    const sub = ingest!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual(['daemon', 'install', 'service', 'uninstall']);
   });
 
   it('exposes expected recall options', () => {

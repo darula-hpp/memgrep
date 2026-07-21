@@ -7,7 +7,7 @@ description: Architecture of memory, MCP, Telegram, and jobs.
 
 ## Memory plane
 
-Transcripts from Cursor, Claude Code, and Kiro are ingested into a local SQLite database. Chunks are embedded with Transformers.js and indexed with HNSW for vector search. Hybrid recall can fuse keyword (FTS5) and vector scores.
+Transcripts from Cursor, Claude Code, and Kiro are ingested into a local SQLite database. Chunks are embedded with Transformers.js and indexed with HNSW for vector search. Hybrid recall can fuse keyword (FTS5) and vector scores. On macOS, `memgrep ingest install` can run that sync on an interval via LaunchAgent.
 
 Agents never need to leave your machine to search that archive.
 

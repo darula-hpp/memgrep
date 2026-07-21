@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Background ingest daemon** - `memgrep ingest daemon|install|uninstall|service` runs idempotent transcript sync on an interval (default 1h) via LaunchAgent `com.memgrep.ingest`. Config: `~/.memgrep/ingest.json`. Docs: Background Ingest guide.
+
 ## [1.5.4] - 2026-07-18
 
 ### Added

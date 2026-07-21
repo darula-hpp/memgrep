@@ -13,7 +13,7 @@ Common entry points:
 
 | Area | Commands |
 | --- | --- |
-| Memory | `ingest`, `recall`, `remember`, `copy`, `list`, `show`, `delete` |
+| Memory | `ingest`, `ingest install`, `recall`, `remember`, `copy`, `list`, `show`, `delete` |
 | Telegram | `telegram`, `telegram install`, `telegram service` |
 | Jobs | `jobs add`, `jobs install`, `jobs run`, `jobs list` |
 | Loop | `loop init`, `loop use`, `loop run`, `loop status` |
