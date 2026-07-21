@@ -1,6 +1,6 @@
 import type { ToolResult } from '../memory/tools.js';
 import type { JobsService } from './service.js';
-import type { JobCreateInput, JobMode, JobUpdateInput } from './types.js';
+import type { JobCreateInput, JobMode, JobRequires, JobUpdateInput } from './types.js';
 
 /**
  * MCP/CLI-facing job tools — mirrors MemoryTools so transports stay thin.
@@ -27,11 +27,25 @@ export class JobsTools {
     telegramProfile?: string;
     mode?: JobMode;
     enabled?: boolean;
+    requires?: JobRequires;
+    executor?: 'cursor' | 'edge';
   }): ToolResult {
     try {
-      const job = this.service.add(input as JobCreateInput);
+      const createInput: JobCreateInput = {
+        ...(input as JobCreateInput),
+        executor: input.executor,
+        requires:
+          input.requires === 'mac-edge'
+            ? 'edge'
+            : input.requires ?? (input.executor === 'edge' ? 'edge' : undefined),
+      };
+      const job = this.service.add(createInput);
       return {
-        text: `Created job ${job.name} (${job.id}). next=${job.nextRunAt}. mode=${job.mode}.`,
+        text:
+          `Created job ${job.name} (${job.id}). next=${job.nextRunAt}. mode=${job.mode}` +
+          ` executor=${job.executor}` +
+          (job.requires ? `. requires=${job.requires}` : '') +
+          '.',
       };
     } catch (error) {
       return { text: error instanceof Error ? error.message : String(error), isError: true };

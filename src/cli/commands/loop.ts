@@ -231,7 +231,7 @@ export function registerLoopCommand(program: Command): void {
 
   loop
     .command('run')
-    .description('Run the loop in-process (detached MCP starts / terminal)')
+    .description('Run the loop (local foreground, or --target edge via cloud hub)')
     .requiredOption('--task <text>', 'Free-text task description')
     .option('--profile <name>', 'Loop profile (default: active / MEMGREP_LOOP_PROFILE)')
     .option('--jira-key <key>', 'Optional Jira key to enrich the task')
@@ -245,9 +245,22 @@ export function registerLoopCommand(program: Command): void {
     .option('--inputs-file <path>', 'JSON array of task-specific inputs')
     .option('--exits-file <path>', 'JSON array of task-specific exit conditions')
     .option('--actions-file <path>', 'JSON array of task-specific exit actions')
+    .option(
+      '--target <where>',
+      'local (default, this host) or edge (start loop on connected edge node)',
+      'local',
+    )
+    .option('--hub-url <url>', 'Cloud hub MCP URL when --target edge (default MEMGREP_MCP_URL)')
     .action(async (opts) => {
       await loadDotenv();
       try {
+        if (opts.target === 'edge') {
+          await runLoopOnEdgeCli(opts);
+          return;
+        }
+        if (opts.target !== 'local') {
+          fail('--target must be local or edge');
+        }
         await runLoopCli(opts);
       } catch (error) {
         fail(error instanceof Error ? error.message : String(error));
@@ -303,6 +316,53 @@ export function registerLoopCommand(program: Command): void {
         }
       },
     );
+}
+
+async function runLoopOnEdgeCli(opts: {
+  task: string;
+  profile?: string;
+  jiraKey?: string;
+  cwd?: string;
+  agentId?: string;
+  maxIterations?: number;
+  query?: string;
+  telegramProfile?: string;
+  notify?: boolean;
+  inputsFile?: string;
+  exitsFile?: string;
+  actionsFile?: string;
+  hubUrl?: string;
+}): Promise<void> {
+  const { invokeEdgeTool } = await import('../../edge/hub.js');
+  const inputs = readArtifactsFile(opts.inputsFile);
+  const exits = readArtifactsFile(opts.exitsFile);
+  const actions = readArtifactsFile(opts.actionsFile);
+  const result = await invokeEdgeTool(
+    'edge_loop_run',
+    {
+      task: opts.task.trim(),
+      profile: opts.profile,
+      jiraKey: opts.jiraKey,
+      cwd: opts.cwd,
+      agentId: opts.agentId,
+      maxIterations: opts.maxIterations,
+      query: opts.query,
+      telegramProfile: opts.telegramProfile,
+      notify: opts.notify,
+      inputs,
+      exits,
+      actions,
+    },
+    {
+      hubUrl: opts.hubUrl ?? process.env.MEMGREP_MCP_URL,
+      token: process.env.MEMGREP_MCP_TOKEN,
+      timeoutMs: 60_000,
+    },
+  );
+  console.log(result.text);
+  if (!result.ok || result.isError) {
+    process.exitCode = 1;
+  }
 }
 
 async function runLoopCli(opts: {

@@ -1,13 +1,49 @@
 import { resolveTelegramConfig, DEFAULT_TELEGRAM_PROFILE } from '../telegram/config.js';
 import { DEFAULT_CURSOR_MODEL } from '../telegram/config.js';
 import { startHttpMcpServer, type HttpMcpHandle } from '../memory/mcp.js';
+import { fetchEdgeOnline, getEdgeHub } from '../edge/hub.js';
+import { readEdgeHubConfig } from '../edge/config.js';
 import { CursorJobExecutor } from './cursor-executor.js';
+import { EdgeJobExecutor } from './edge-executor.js';
 import { ExecutorRegistry } from './executor.js';
 import type { JobExecuteContext } from './executor.js';
 import { NotifierRegistry, TelegramJobNotifier, NoopNotifier } from './notifier.js';
 import { JobsService } from './service.js';
 import { JobStore } from './store.js';
 import type { Job } from './types.js';
+
+function edgeStatusUrlFromMcp(mcpUrl: string): string {
+  const url = new URL(mcpUrl);
+  url.pathname = '/edge/status';
+  url.search = '';
+  url.hash = '';
+  return url.toString();
+}
+
+function makeIsEdgeOnline(mcpUrl: string, mcpToken?: string, home?: string) {
+  return async (): Promise<boolean> => {
+    const local = getEdgeHub();
+    if (local?.isOnline()) return true;
+    const edgeToken = readEdgeHubConfig(home)?.token;
+    const token = mcpToken ?? edgeToken;
+    // Prefer the always-on hub (serve :3921 / MEMGREP_MCP_URL), not an ephemeral embed.
+    const candidates = [
+      process.env.MEMGREP_EDGE_STATUS_URL,
+      process.env.MEMGREP_MCP_URL
+        ? edgeStatusUrlFromMcp(process.env.MEMGREP_MCP_URL)
+        : undefined,
+      'http://127.0.0.1:3921/edge/status',
+      edgeStatusUrlFromMcp(mcpUrl),
+    ].filter((u): u is string => !!u);
+    const seen = new Set<string>();
+    for (const url of candidates) {
+      if (seen.has(url)) continue;
+      seen.add(url);
+      if (await fetchEdgeOnline(url, token)) return true;
+    }
+    return false;
+  };
+}
 
 export const DEFAULT_TICK_MS = 30_000;
 
@@ -63,6 +99,7 @@ export class JobsDaemon {
 
     const executors = new ExecutorRegistry();
     executors.register(new CursorJobExecutor());
+    executors.register(new EdgeJobExecutor());
 
     const notifiers = new NotifierRegistry();
     notifiers.register(new NoopNotifier());
@@ -113,6 +150,7 @@ export class JobsDaemon {
       notifiers,
       resolveContext,
       notifyKind: 'telegram',
+      isEdgeOnline: makeIsEdgeOnline(mcpUrl, mcpToken, this.options.home),
     });
 
     const tickMs = this.options.tickMs ?? DEFAULT_TICK_MS;
@@ -193,6 +231,7 @@ export async function createRunnableJobsService(options: {
 
   const executors = new ExecutorRegistry();
   executors.register(new CursorJobExecutor());
+  executors.register(new EdgeJobExecutor());
   const notifiers = new NotifierRegistry();
   notifiers.register(new NoopNotifier());
   notifiers.register({
@@ -213,6 +252,7 @@ export async function createRunnableJobsService(options: {
     store,
     executors,
     notifiers,
+    isEdgeOnline: makeIsEdgeOnline(mcpUrl, mcpToken, options.home),
     resolveContext: (job) => {
       const profile = job.telegramProfile ?? DEFAULT_TELEGRAM_PROFILE;
       const resolved = resolveTelegramConfig(process.env, options.home, profile);

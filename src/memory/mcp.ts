@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
+import express from 'express';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
@@ -44,6 +45,9 @@ import { CursorTools } from '../cursor/tools.js';
 import { resolveLoopConfig } from '../loop/config.js';
 import { LoopService } from '../loop/service.js';
 import { LoopTools } from '../loop/tools.js';
+import { ensureEdgeHubToken, readEdgeHubConfig } from '../edge/config.js';
+import { ensureGlobalEdgeHub, setEdgeHub } from '../edge/hub.js';
+import { EdgeTools } from '../edge/tools.js';
 
 function openJobsTools(storeDir?: string): { jobs: JobsTools; closeJobs: () => void } {
   const jobStore = JobStore.open(storeDir);
@@ -280,6 +284,10 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   const cursor = openCursorTools(options.storeDir);
   const loop = openLoopTools(tools, options.storeDir);
 
+  const edgeHub = ensureGlobalEdgeHub({ home: options.storeDir ?? defaultHome(), store });
+  ensureEdgeHubToken(options.storeDir ?? defaultHome());
+  const edge = new EdgeTools(edgeHub);
+
   // Loopback bind + public tunnel Host header: allow configured tunnel hostname.
   const allowedHosts = resolveAllowedHosts(process.env, options.storeDir, options.allowedHosts);
   const app = createMcpExpressApp({ host, allowedHosts });
@@ -300,6 +308,51 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
     });
   }
 
+  const edgeAuthOk = (req: express.Request): boolean => {
+    const edgeToken = readEdgeHubConfig(options.storeDir ?? defaultHome())?.token;
+    const header = req.header('authorization') ?? '';
+    const okMcp = !!authToken && header === `Bearer ${authToken}`;
+    const okEdge = !!edgeToken && header === `Bearer ${edgeToken}`;
+    return isLoopbackHost(host) || okMcp || okEdge;
+  };
+
+  app.get('/edge/status', (req, res) => {
+    if (!edgeAuthOk(req)) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    res.json(edgeHub.getPresence());
+  });
+
+  app.post('/edge/invoke', express.json({ limit: '4mb' }), async (req, res) => {
+    if (!edgeAuthOk(req)) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    const name = typeof req.body?.name === 'string' ? req.body.name : '';
+    const args =
+      req.body?.arguments && typeof req.body.arguments === 'object'
+        ? (req.body.arguments as Record<string, unknown>)
+        : {};
+    const timeoutMs =
+      typeof req.body?.timeoutMs === 'number' ? req.body.timeoutMs : undefined;
+    if (!name) {
+      res.status(400).json({ ok: false, text: 'name is required', isError: true });
+      return;
+    }
+    if (!edgeHub.isOnline()) {
+      res.status(503).json({ ok: false, text: 'edge offline', isError: true });
+      return;
+    }
+    try {
+      const result = await edgeHub.invokeTool(name, args, timeoutMs);
+      res.json(result);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      res.status(503).json({ ok: false, text, isError: true });
+    }
+  });
+
   app.post('/mcp', async (req, res) => {
     const server = createMemgrepMcpServer(tools, {
       jobs,
@@ -311,6 +364,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
       gcloud,
       cursor,
       loop,
+      edge,
     });
     try {
       const transport = new StreamableHTTPServerTransport({
@@ -351,6 +405,8 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   });
 
   const httpServer = createServer(app);
+  edgeHub.attach(httpServer);
+
   await new Promise<void>((resolve, reject) => {
     httpServer.listen(port, host, () => resolve());
     httpServer.on('error', reject);
@@ -359,16 +415,20 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   const address = httpServer.address() as AddressInfo;
   const url = `http://${host}:${address.port}/mcp`;
   console.error(`memgrep MCP HTTP listening on ${url}`);
+  console.error(`memgrep edge hub WebSocket on ws://${host}:${address.port}/edge`);
 
   return {
     url,
     close: () =>
       new Promise((resolve, reject) => {
-        httpServer.close((err) => {
-          closeJobs();
-          store.close();
-          if (err) reject(err);
-          else resolve();
+        void edgeHub.close().finally(() => {
+          setEdgeHub(null);
+          httpServer.close((err) => {
+            closeJobs();
+            store.close();
+            if (err) reject(err);
+            else resolve();
+          });
         });
       }),
   };

@@ -17,5 +17,8 @@ These register only when configured:
 | PostHog | `memgrep posthog setup` | Analytics queries |
 | Upstash | `memgrep upstash setup` | Redis REST helpers |
 | Product Hunt | `memgrep producthunt setup` | PH read APIs |
+| Edge (HTTP serve) | `memgrep edge token` + host `edge pair` | `edge_status`, `edge_ping`, `edge_run` when an edge is connected |
 
-Unconfigured suites are omitted from the tool list entirely.
+Edge tools are registered on HTTP `serve` always; they return **edge offline** until an edge node is paired and connected. See [Edge Node + Cloud Hub](/docs/guides/edge-hub).
+
+Unconfigured suites (except edge) are omitted from the tool list entirely.

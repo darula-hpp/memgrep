@@ -2,7 +2,13 @@
 export type JobMode = 'notify' | 'auto';
 
 /** Which executor runs the job (extensible registry). */
-export type JobExecutorKind = 'cursor' | (string & {});
+export type JobExecutorKind = 'cursor' | 'edge' | (string & {});
+
+/**
+ * Extra runtime requirements before a job may execute.
+ * `edge` = connected edge node (any OS). `mac-edge` is a deprecated alias accepted on read.
+ */
+export type JobRequires = 'edge' | 'mac-edge';
 
 export type Job = {
   id: string;
@@ -22,6 +28,8 @@ export type Job = {
   mode: JobMode;
   /** Executor kind registered in ExecutorRegistry (default: cursor). */
   executor: JobExecutorKind;
+  /** When set to edge, fail if no edge node is connected to the hub. */
+  requires?: JobRequires;
   enabled: boolean;
   nextRunAt: string | null;
   lastRunAt: string | null;
@@ -40,6 +48,7 @@ export type JobCreateInput = {
   telegramProfile?: string;
   mode?: JobMode;
   executor?: JobExecutorKind;
+  requires?: JobRequires;
   enabled?: boolean;
 };
 
@@ -54,6 +63,7 @@ export type JobUpdateInput = {
   telegramProfile?: string | null;
   mode?: JobMode;
   executor?: JobExecutorKind;
+  requires?: JobRequires | null;
   enabled?: boolean;
 };
 

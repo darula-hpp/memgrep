@@ -86,10 +86,36 @@ export class LoopTools {
     query?: string;
     telegramProfile?: string;
     notify?: boolean;
+    /** local = this host (default); edge = proxy to connected edge node */
+    target?: 'local' | 'edge';
   }): Promise<ToolResult> {
     try {
       const task = input.task?.trim();
       if (!task) throw new Error('task is required (free-text description).');
+
+      if (input.target === 'edge') {
+        const { invokeEdgeTool } = await import('../edge/hub.js');
+        const result = await invokeEdgeTool(
+          'edge_loop_run',
+          {
+            task,
+            jiraKey: input.jiraKey,
+            profile: input.profile,
+            inputs: input.inputs,
+            exits: input.exits,
+            actions: input.actions,
+            cwd: input.cwd,
+            agentId: input.agentId,
+            maxIterations: input.maxIterations,
+            query: input.query,
+            telegramProfile: input.telegramProfile,
+            notify: input.notify,
+          },
+          { timeoutMs: 60_000 },
+        );
+        return { text: result.text, isError: result.isError || !result.ok };
+      }
+
       if (input.jiraKey?.trim() && !this.depsReady.jiraReady) {
         throw new Error(
           'jiraKey was provided but Jira is not configured. Run: node dist/cli.js jira setup',

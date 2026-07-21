@@ -142,6 +142,7 @@ export class JobStore {
       telegramProfile: input.telegramProfile?.trim() || undefined,
       mode: input.mode ?? 'notify',
       executor: input.executor ?? 'cursor',
+      requires: input.requires,
       enabled: input.enabled ?? true,
       nextRunAt: schedule.next(input.cron.trim(), now).toISOString(),
       lastRunAt: null,
@@ -197,6 +198,9 @@ export class JobStore {
     }
     if (patch.mode !== undefined) prev.mode = patch.mode;
     if (patch.executor !== undefined) prev.executor = patch.executor;
+    if (patch.requires !== undefined) {
+      prev.requires = patch.requires ?? undefined;
+    }
     if (patch.enabled !== undefined) prev.enabled = patch.enabled;
 
     if (!prev.playbookId && !prev.playbookQuery) {

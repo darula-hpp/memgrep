@@ -7,6 +7,7 @@ import { JobsService } from '../service.js';
 import { getScheduleProvider } from '../schedule.js';
 import { buildPlaybookPrompt } from '../executor.js';
 import { JobsTools } from '../tools.js';
+import { ExecutorRegistry, type JobExecutor } from '../executor.js';
 import type { Job } from '../types.js';
 
 const dirs: string[] = [];
@@ -118,6 +119,84 @@ describe('buildPlaybookPrompt', () => {
     expect(text).toContain('chatId=331');
     expect(text).toContain('Send previews');
     expect(text).toContain('notify');
+  });
+});
+
+describe('requires edge', () => {
+  it('fails run when edge is offline', async () => {
+    const home = tempHome();
+    const cwd = path.join(home, 'proj');
+    mkdirSync(cwd);
+    const store = JobStore.open(home);
+    const executors = new ExecutorRegistry();
+    let executed = false;
+    const fake: JobExecutor = {
+      kind: 'cursor',
+      async execute() {
+        executed = true;
+        return { ok: true, summary: 'ran' };
+      },
+    };
+    executors.register(fake);
+    const service = new JobsService({
+      store,
+      executors,
+      resolveContext: async () => ({
+        scheduledAt: new Date().toISOString(),
+        mcpUrl: 'http://127.0.0.1:3921/mcp',
+        cursorApiKey: 'x',
+      }),
+      isEdgeOnline: async () => false,
+    });
+    const job = service.add({
+      name: 'needs-edge',
+      cron: '0 9 * * *',
+      prompt: 'use local tools',
+      cwd,
+      playbookId: 1,
+      requires: 'edge',
+    });
+    const { result } = await service.runNow(job.id);
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/edge offline/);
+    expect(executed).toBe(false);
+    store.close();
+  });
+
+  it('accepts deprecated mac-edge alias', async () => {
+    const home = tempHome();
+    const cwd = path.join(home, 'proj');
+    mkdirSync(cwd);
+    const store = JobStore.open(home);
+    const executors = new ExecutorRegistry();
+    executors.register({
+      kind: 'cursor',
+      async execute() {
+        return { ok: true, summary: 'ran' };
+      },
+    });
+    const service = new JobsService({
+      store,
+      executors,
+      resolveContext: async () => ({
+        scheduledAt: new Date().toISOString(),
+        mcpUrl: 'http://127.0.0.1:3921/mcp',
+        cursorApiKey: 'x',
+      }),
+      isEdgeOnline: async () => false,
+    });
+    const job = service.add({
+      name: 'legacy-req',
+      cron: '0 9 * * *',
+      prompt: 'x',
+      cwd,
+      playbookId: 1,
+      requires: 'mac-edge',
+    });
+    const { result } = await service.runNow(job.id);
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/edge offline/);
+    store.close();
   });
 });
 

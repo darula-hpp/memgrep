@@ -94,13 +94,15 @@ MCP stays on `http://127.0.0.1:3921/mcp`. Public tunnels are opt-in (any vendor)
 | Telegram bots + MCP | `memgrep telegram install` / `--all` | `memgrep telegram service` | `~/.memgrep/logs/telegram-launchd.log` |
 | Jobs scheduler | `memgrep jobs install` | `memgrep jobs service` | `~/.memgrep/logs/jobs-launchd.log` |
 | Background ingest | `memgrep ingest install` | `memgrep ingest service` | `~/.memgrep/logs/ingest-launchd.log` |
+| Edge node (cloud hub) | `memgrep edge pair` then `edge install` | `memgrep edge service` | `~/.memgrep/logs/edge-*.log` |
 
-After upgrade: stop foreground pollers, re-run `telegram install` / `jobs install` / `ingest install`, confirm **Loaded: yes**. Restart:
+After upgrade: stop foreground pollers, re-run `telegram install` / `jobs install` / `ingest install` / `edge install`, confirm **Loaded: yes**. Restart:
 
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.memgrep.telegram
 launchctl kickstart -k gui/$(id -u)/com.memgrep.jobs
 launchctl kickstart -k gui/$(id -u)/com.memgrep.ingest
+launchctl kickstart -k gui/$(id -u)/com.memgrep.edge
 ```
 
 These pause while the Mac sleeps; missed job ticks beyond a 6h grace window are skipped.
@@ -110,6 +112,9 @@ These pause while the Mac sleeps; missed job ticks beyond a 6h grace window are 
 ```bash
 # Memory
 memgrep scan | ingest | ingest install | remember | list | recall | show | copy | delete
+
+# Edge node ↔ cloud hub (macOS / Linux / Windows)
+memgrep edge token | pair | install | service | status
 
 # Loop (per-project profiles)
 memgrep loop init <name> [--cwd <path>]

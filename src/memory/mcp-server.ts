@@ -10,6 +10,7 @@ import type { UpstashTools } from '../upstash/tools.js';
 import type { GcloudTools } from '../gcloud/tools.js';
 import type { CursorTools } from '../cursor/tools.js';
 import type { LoopTools } from '../loop/tools.js';
+import type { EdgeTools } from '../edge/tools.js';
 
 export type McpToolBundles = {
   jobs?: JobsTools;
@@ -21,6 +22,7 @@ export type McpToolBundles = {
   gcloud?: GcloudTools;
   cursor?: CursorTools;
   loop?: LoopTools;
+  edge?: EdgeTools;
 };
 
 export function createMemgrepMcpServer(
@@ -28,7 +30,8 @@ export function createMemgrepMcpServer(
   bundles: McpToolBundles = {},
 ): McpServer {
   const server = new McpServer({ name: 'memgrep', version: '0.1.0' });
-  const { jobs, jira, productHunt, posthog, neon, upstash, gcloud, cursor, loop } = bundles;
+  const { jobs, jira, productHunt, posthog, neon, upstash, gcloud, cursor, loop, edge } =
+    bundles;
 
   server.registerTool(
     'recall',
@@ -142,7 +145,87 @@ export function createMemgrepMcpServer(
     registerLoopTools(server, loop);
   }
 
+  if (edge) {
+    registerEdgeTools(server, edge);
+  }
+
   return server;
+}
+
+function registerEdgeTools(server: McpServer, edge: EdgeTools): void {
+  server.registerTool(
+    'edge_status',
+    {
+      description:
+        'Show edge node presence on this cloud hub (online, device id, capabilities, last seen).',
+      inputSchema: {},
+    },
+    async () => toMcpContent(edge.status()),
+  );
+
+  server.registerTool(
+    'edge_ping',
+    {
+      description:
+        'Ping the connected edge node. Fails with "edge offline" when no edge is connected.',
+      inputSchema: {},
+    },
+    async () => toMcpContent(await edge.ping()),
+  );
+
+  server.registerTool(
+    'edge_run',
+    {
+      description:
+        'Run an allowlisted command on the edge node (local shell on that machine). ' +
+        'Requires the edge online with edge_run enabled. Fails with "edge offline" otherwise.',
+      inputSchema: {
+        argv: z.array(z.string()).min(1).describe('Command argv, e.g. ["uname", "-a"]'),
+        cwd: z.string().optional().describe('Working directory on the edge host'),
+        timeoutMs: z.number().int().min(1000).max(300000).optional(),
+      },
+    },
+    async (input) => toMcpContent(await edge.run(input)),
+  );
+
+  server.registerTool(
+    'edge_loop_run',
+    {
+      description:
+        'Start a coding loop on the connected edge node (background). ' +
+        'Use when the edge has better compute or local repos. Fails with edge offline if disconnected. ' +
+        'Enable on the edge with: memgrep edge pair … --tools edge_ping,edge_loop_run',
+      inputSchema: {
+        task: z.string().describe('Free-text task description'),
+        profile: z.string().optional().describe('Loop profile on the edge host'),
+        jiraKey: z.string().optional(),
+        cwd: z.string().optional().describe('Workspace on the edge host'),
+        agentId: z.string().optional(),
+        maxIterations: z.number().int().min(1).max(20).optional(),
+        query: z.string().optional(),
+        telegramProfile: z.string().optional(),
+        notify: z.boolean().optional(),
+      },
+    },
+    async (input) => toMcpContent(await edge.loopRun(input)),
+  );
+
+  server.registerTool(
+    'edge_cursor_run',
+    {
+      description:
+        'Run a one-shot Cursor agent on the edge node (blocking). ' +
+        'Prefer for jobs / short agent turns that should use edge compute.',
+      inputSchema: {
+        prompt: z.string().describe('Full prompt for the agent'),
+        cwd: z.string().describe('Working directory on the edge host'),
+        model: z.string().optional(),
+        mcpUrl: z.string().optional().describe('MCP URL the edge agent should use'),
+        mcpToken: z.string().optional(),
+      },
+    },
+    async (input) => toMcpContent(await edge.cursorRun(input)),
+  );
 }
 
 function registerJobsTools(server: McpServer, jobs: JobsTools): void {
@@ -173,9 +256,26 @@ function registerJobsTools(server: McpServer, jobs: JobsTools): void {
         telegramProfile: z.string().optional().describe('Telegram profile for credentials/notify'),
         mode: z.enum(['notify', 'auto']).optional().describe('notify (default) or auto'),
         enabled: z.boolean().optional().describe('Default true'),
+        executor: z
+          .enum(['cursor', 'edge'])
+          .optional()
+          .describe('cursor (hub) or edge (Cursor turn on edge node)'),
+        requires: z
+          .enum(['edge', 'mac-edge'])
+          .optional()
+          .describe('Require edge node online before run (fails with edge offline)'),
       },
     },
-    async (input) => toMcpContent(jobs.add(input)),
+    async (input) => {
+      const normalized = {
+        ...input,
+        requires:
+          input.requires === 'mac-edge' || input.executor === 'edge'
+            ? ('edge' as const)
+            : input.requires,
+      };
+      return toMcpContent(jobs.add(normalized));
+    },
   );
 
   server.registerTool(
@@ -194,9 +294,14 @@ function registerJobsTools(server: McpServer, jobs: JobsTools): void {
         telegramProfile: z.string().nullable().optional(),
         mode: z.enum(['notify', 'auto']).optional(),
         enabled: z.boolean().optional(),
+        requires: z.enum(['edge', 'mac-edge']).nullable().optional(),
       },
     },
-    async ({ idOrName, ...patch }) => toMcpContent(jobs.update(idOrName, patch)),
+    async ({ idOrName, ...patch }) => {
+      const next =
+        patch.requires === 'mac-edge' ? { ...patch, requires: 'edge' as const } : patch;
+      return toMcpContent(jobs.update(idOrName, next));
+    },
   );
 
   server.registerTool(
@@ -703,6 +808,7 @@ function registerLoopTools(server: McpServer, loop: LoopTools): void {
         'Start the coding loop in the background (does not wait). Requires free-text task. ' +
         'Optional profile selects ~/.memgrep/loops/<profile>/ defaults. Optional jiraKey enriches context. ' +
         'Optional task-specific inputs/exits/actions merge over defaults. ' +
+        'target=edge starts the loop on the connected edge node (better local compute). ' +
         'After PASS, runs exit actions (builtin github_pr then agent actions). Telegram notifies on complete.',
       inputSchema: {
         task: z.string().describe('Free-text task description (required)'),
@@ -734,6 +840,10 @@ function registerLoopTools(server: McpServer, loop: LoopTools): void {
           .string()
           .optional()
           .describe('Telegram profile for completion notify'),
+        target: z
+          .enum(['local', 'edge'])
+          .optional()
+          .describe('local (default) or edge (run on connected edge node)'),
       },
     },
     async (input) => toMcpContent(await loop.run(input)),

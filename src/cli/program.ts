@@ -24,6 +24,7 @@ import { registerUpstashCommand } from './commands/upstash.js';
 import { registerGcloudCommand } from './commands/gcloud.js';
 import { registerCursorCommand } from './commands/cursor.js';
 import { registerLoopCommand } from './commands/loop.js';
+import { registerEdgeCommand } from './commands/edge.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -61,6 +62,7 @@ export function createProgram(): Command {
   registerGcloudCommand(program);
   registerCursorCommand(program);
   registerLoopCommand(program);
+  registerEdgeCommand(program);
 
   return program;
 }

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Edge node + cloud hub** - cloud `serve --http` hosts a WebSocket edge hub (`/edge`); edge hosts (macOS / Linux / Windows) use `memgrep edge pair|install|daemon` for `edge_status` / `edge_ping` / `edge_run` / `edge_loop_run` / `edge_cursor_run`, one-way memory sync-up, `loop run --target edge`, and jobs `--executor edge`. Service install: LaunchAgent, systemd --user, or Windows Startup. Docs: Edge Hub guide.
+
 ## [1.5.5] - 2026-07-21
 
 ### Added

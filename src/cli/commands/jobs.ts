@@ -30,6 +30,12 @@ export function registerJobsCommand(program: Command): void {
     .option('--model <id>', 'Cursor model id')
     .option('--profile <name>', 'telegram profile for credentials + notify', 'default')
     .option('--mode <mode>', 'notify | auto', 'notify')
+    .option(
+      '--executor <kind>',
+      'cursor (default, run on hub) or edge (Cursor turn on edge node)',
+      'cursor',
+    )
+    .option('--requires <req>', 'optional: edge (fail if edge node offline)')
     .option('--disabled', 'create disabled', false)
     .action(
       async (opts: {
@@ -42,6 +48,8 @@ export function registerJobsCommand(program: Command): void {
         model?: string;
         profile: string;
         mode: string;
+        executor: string;
+        requires?: string;
         disabled?: boolean;
       }) => {
         if (opts.playbook == null && !opts.playbookQuery) {
@@ -49,6 +57,12 @@ export function registerJobsCommand(program: Command): void {
         }
         if (opts.mode !== 'notify' && opts.mode !== 'auto') {
           fail('--mode must be notify or auto');
+        }
+        if (opts.executor !== 'cursor' && opts.executor !== 'edge') {
+          fail('--executor must be cursor or edge');
+        }
+        if (opts.requires && opts.requires !== 'edge' && opts.requires !== 'mac-edge') {
+          fail('--requires must be edge (or omit)');
         }
         const { store, service } = await openService();
         try {
@@ -62,10 +76,20 @@ export function registerJobsCommand(program: Command): void {
             model: opts.model,
             telegramProfile: opts.profile,
             mode: opts.mode,
+            executor: opts.executor,
+            requires:
+              opts.requires === 'edge' ||
+              opts.requires === 'mac-edge' ||
+              opts.executor === 'edge'
+                ? 'edge'
+                : undefined,
             enabled: !opts.disabled,
           });
           console.log(`Created ${job.name} (${job.id})`);
-          console.log(`next=${job.nextRunAt} mode=${job.mode}`);
+          console.log(
+            `next=${job.nextRunAt} mode=${job.mode} executor=${job.executor}` +
+              (job.requires ? ` requires=${job.requires}` : ''),
+          );
         } catch (error) {
           fail(error instanceof Error ? error.message : String(error));
         } finally {

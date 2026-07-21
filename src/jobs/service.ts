@@ -24,7 +24,24 @@ export type JobsServiceOptions = {
   resolveContext?: ResolveRunContext;
   /** Which notifier kind to use when job.mode is notify (or always on failure). Default: telegram. */
   notifyKind?: string;
+  /**
+   * When a job has requires: edge, called before execute.
+   * Return false → fail the run with "edge offline".
+   */
+  isEdgeOnline?: () => boolean | Promise<boolean>;
 };
+
+/** True when job requires a connected edge node (accepts deprecated mac-edge). */
+export function jobRequiresEdge(job: {
+  requires?: string | null;
+  executor?: string | null;
+}): boolean {
+  return (
+    job.requires === 'edge' ||
+    job.requires === 'mac-edge' ||
+    job.executor === 'edge'
+  );
+}
 
 /**
  * Shared CRUD + run orchestration for CLI and MCP.
@@ -153,9 +170,26 @@ export class JobsService {
 
     let result: JobExecuteResult;
     try {
-      const ctx = await this.options.resolveContext(job);
-      const executor = this.options.executors.get(job.executor);
-      result = await executor.execute(job, { ...ctx, scheduledAt, manual });
+      if (jobRequiresEdge(job)) {
+        const online = this.options.isEdgeOnline
+          ? await this.options.isEdgeOnline()
+          : false;
+        if (!online) {
+          result = {
+            ok: false,
+            summary: '',
+            error: 'edge offline: edge node is not connected (requires: edge)',
+          };
+        } else {
+          const ctx = await this.options.resolveContext(job);
+          const executor = this.options.executors.get(job.executor);
+          result = await executor.execute(job, { ...ctx, scheduledAt, manual });
+        }
+      } else {
+        const ctx = await this.options.resolveContext(job);
+        const executor = this.options.executors.get(job.executor);
+        result = await executor.execute(job, { ...ctx, scheduledAt, manual });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       result = { ok: false, summary: '', error: message };
@@ -191,7 +225,8 @@ export class JobsService {
     const text = jobs
       .map((j) => {
         const state = j.enabled ? 'on' : 'off';
-        return `[${j.id}] ${j.name} (${state}) cron="${j.cron}" mode=${j.mode} next=${j.nextRunAt ?? '—'} playbook=${j.playbookId ?? j.playbookQuery ?? '—'}`;
+        const req = j.requires ? ` requires=${j.requires}` : '';
+        return `[${j.id}] ${j.name} (${state}) cron="${j.cron}" mode=${j.mode}${req} next=${j.nextRunAt ?? '—'} playbook=${j.playbookId ?? j.playbookQuery ?? '—'}`;
       })
       .join('\n');
     return { text };

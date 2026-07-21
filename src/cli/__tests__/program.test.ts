@@ -9,6 +9,7 @@ describe('createProgram', () => {
       'copy',
       'cursor',
       'delete',
+      'edge',
       'gcloud',
       'index',
       'ingest',
@@ -27,6 +28,22 @@ describe('createProgram', () => {
       'show',
       'telegram',
       'upstash',
+    ]);
+  });
+
+  it('registers edge subcommands', () => {
+    const program = createProgram();
+    const edge = program.commands.find((c) => c.name() === 'edge');
+    expect(edge).toBeDefined();
+    const sub = edge!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual([
+      'daemon',
+      'install',
+      'pair',
+      'service',
+      'status',
+      'token',
+      'uninstall',
     ]);
   });
 

@@ -17,7 +17,8 @@ Common entry points:
 | Telegram | `telegram`, `telegram install`, `telegram service` |
 | Jobs | `jobs add`, `jobs install`, `jobs run`, `jobs list` |
 | Loop | `loop init`, `loop use`, `loop run`, `loop status` |
+| Edge | `edge token`, `edge pair`, `edge install`, `edge service` |
 | MCP | `serve` |
 | Suites | `cursor setup`, `jira setup`, `neon setup`, ... |
 
-See also: [Memory Commands](/docs/cli/memory), [Telegram](/docs/cli/telegram), [Jobs](/docs/cli/jobs), [Loop](/docs/cli/loop).
+See also: [Memory Commands](/docs/cli/memory), [Telegram](/docs/cli/telegram), [Jobs](/docs/cli/jobs), [Loop](/docs/cli/loop), [Edge](/docs/cli/edge), [Edge Hub guide](/docs/guides/edge-hub).

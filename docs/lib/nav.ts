@@ -35,6 +35,7 @@ export const nav: NavSection[] = [
       { title: 'Telegram + Cursor', slug: 'telegram-cursor' },
       { title: 'Scheduled Jobs', slug: 'scheduled-jobs' },
       { title: 'Background Ingest', slug: 'background-ingest' },
+      { title: 'Edge Node + Cloud Hub', slug: 'edge-hub' },
       { title: 'Coding Loop', slug: 'coding-loop' },
       { title: 'MCP Setup', slug: 'mcp-setup' },
     ],
@@ -48,6 +49,7 @@ export const nav: NavSection[] = [
       { title: 'Telegram', slug: 'telegram' },
       { title: 'Jobs', slug: 'jobs' },
       { title: 'Loop', slug: 'loop' },
+      { title: 'Edge', slug: 'edge' },
     ],
   },
   {
