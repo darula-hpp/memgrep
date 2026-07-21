@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-21
+
 ### Added
 
 - **Edge node + cloud hub** - cloud `serve --http` hosts a WebSocket edge hub (`/edge`); edge hosts (macOS / Linux / Windows) use `memgrep edge pair|install|daemon` for `edge_status` / `edge_ping` / `edge_run` / `edge_loop_run` / `edge_cursor_run`, one-way memory sync-up, `loop run --target edge`, and jobs `--executor edge`. Service install: LaunchAgent, systemd --user, or Windows Startup. Docs: Edge Hub guide.
@@ -192,7 +194,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SQLite + HNSW index with self-healing (rebuilds the vector cache from the database after crashes or interrupted ingests).
 - Idempotent ingestion by content hash; manual notes via `remember` land in the same searchable memory.
 
-[Unreleased]: https://github.com/darula-hpp/memgrep/compare/v1.5.5...HEAD
+[Unreleased]: https://github.com/darula-hpp/memgrep/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/darula-hpp/memgrep/compare/v1.5.5...v1.6.0
 [1.5.5]: https://github.com/darula-hpp/memgrep/compare/v1.5.4...v1.5.5
 [1.5.4]: https://github.com/darula-hpp/memgrep/compare/v1.5.3...v1.5.4
 [1.5.3]: https://github.com/darula-hpp/memgrep/compare/v1.5.2...v1.5.3
