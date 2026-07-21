@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-07-21
+
 ### Added
 
 - **Background ingest daemon** - `memgrep ingest daemon|install|uninstall|service` runs idempotent transcript sync on an interval (default 1h) via LaunchAgent `com.memgrep.ingest`. Config: `~/.memgrep/ingest.json`. Docs: Background Ingest guide.
@@ -186,7 +188,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SQLite + HNSW index with self-healing (rebuilds the vector cache from the database after crashes or interrupted ingests).
 - Idempotent ingestion by content hash; manual notes via `remember` land in the same searchable memory.
 
-[Unreleased]: https://github.com/darula-hpp/memgrep/compare/v1.5.4...HEAD
+[Unreleased]: https://github.com/darula-hpp/memgrep/compare/v1.5.5...HEAD
+[1.5.5]: https://github.com/darula-hpp/memgrep/compare/v1.5.4...v1.5.5
 [1.5.4]: https://github.com/darula-hpp/memgrep/compare/v1.5.3...v1.5.4
 [1.5.3]: https://github.com/darula-hpp/memgrep/compare/v1.5.2...v1.5.3
 [1.5.2]: https://github.com/darula-hpp/memgrep/compare/v1.5.1...v1.5.2
