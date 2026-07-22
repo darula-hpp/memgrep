@@ -164,6 +164,30 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   background: rgba(138, 47, 47, 0.08);
   border: 1px solid rgba(138, 47, 47, 0.18);
 }
+.rich {
+  border: 1px solid var(--line);
+  padding: 0.9rem;
+  background: rgba(255,255,255,0.65);
+}
+.rich-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.65rem;
+}
+.rich-toolbar button {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.85rem;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+.rich textarea {
+  min-height: 12rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+}
+.hint { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.82rem; }
 `;
 
 export const EDITOR_JS = `const select = document.getElementById('docSelect');
@@ -176,7 +200,7 @@ const reloadBtn = document.getElementById('reloadBtn');
 
 const params = new URLSearchParams(location.search);
 let currentName = params.get('name') || '';
-let state = { scalars: {}, iterables: [] };
+let state = { scalars: {}, rich: {}, richFields: [], iterables: [], scalarFields: [] };
 
 function showError(msg) {
   errorEl.hidden = !msg;
@@ -234,6 +258,68 @@ function normalizeRows(raw, fields) {
   });
 }
 
+function wrapSelection(ta, before, after) {
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const value = ta.value;
+  const selected = value.slice(start, end) || 'text';
+  ta.value = value.slice(0, start) + before + selected + after + value.slice(end);
+  ta.focus();
+  ta.selectionStart = start + before.length;
+  ta.selectionEnd = start + before.length + selected.length;
+  ta.dispatchEvent(new Event('input'));
+}
+
+function prefixLines(ta, prefix) {
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const value = ta.value;
+  const lineStart = value.lastIndexOf('\\n', start - 1) + 1;
+  const segment = value.slice(lineStart, end);
+  const next = segment.split('\\n').map((line) => prefix + line).join('\\n');
+  ta.value = value.slice(0, lineStart) + next + value.slice(end);
+  ta.focus();
+  ta.dispatchEvent(new Event('input'));
+}
+
+function renderRichField(field) {
+  const box = document.createElement('div');
+  box.className = 'rich';
+  const title = document.createElement('div');
+  title.className = 'section-title';
+  title.textContent = field + ' | rich';
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.textContent = 'Markdown: **bold** *italic* # headings, lists, > indent';
+  const toolbar = document.createElement('div');
+  toolbar.className = 'rich-toolbar';
+  const ta = document.createElement('textarea');
+  ta.value = state.rich[field] ?? '';
+  ta.addEventListener('input', () => { state.rich[field] = ta.value; });
+
+  const tools = [
+    ['Bold', () => wrapSelection(ta, '**', '**')],
+    ['Italic', () => wrapSelection(ta, '*', '*')],
+    ['H2', () => prefixLines(ta, '## ')],
+    ['H3', () => prefixLines(ta, '### ')],
+    ['Bullet', () => prefixLines(ta, '- ')],
+    ['Number', () => prefixLines(ta, '1. ')],
+    ['Indent >', () => prefixLines(ta, '> ')],
+  ];
+  for (const [label, fn] of tools) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = label;
+    btn.addEventListener('click', fn);
+    toolbar.appendChild(btn);
+  }
+  box.appendChild(title);
+  box.appendChild(hint);
+  box.appendChild(toolbar);
+  box.appendChild(ta);
+  return box;
+}
+
 function render() {
   form.innerHTML = '';
 
@@ -259,6 +345,10 @@ function render() {
       section.appendChild(label);
     }
     form.appendChild(section);
+  }
+
+  for (const field of state.richFields) {
+    form.appendChild(renderRichField(field));
   }
 
   for (const it of state.iterables) {
@@ -330,13 +420,15 @@ function render() {
   }
 
   const scalarCount = state.scalarFields.length;
+  const richCount = state.richFields.length;
   const rowCount = state.iterables.reduce((n, it) => n + it.rows.length, 0);
-  statusEl.textContent = scalarCount + ' field(s), ' + state.iterables.length + ' iterable(s), ' + rowCount + ' row(s)';
+  statusEl.textContent = scalarCount + ' field(s), ' + richCount + ' rich, ' + state.iterables.length + ' iterable(s), ' + rowCount + ' row(s)';
 }
 
 function buildContext() {
   const context = {};
   for (const [k, v] of Object.entries(state.scalars)) setByPath(context, k, v);
+  for (const [k, v] of Object.entries(state.rich)) setByPath(context, k, v);
   for (const it of state.iterables) {
     const rows = it.rows.map((row) => {
       if (it.fields.length === 1 && it.fields[0] === '_value') return row._value ?? '';
@@ -377,12 +469,15 @@ async function loadDoc(name) {
   metaEl.textContent = 'Template: ' + data.meta.template + ' · updated ' + (data.meta.updatedAt || '');
 
   const fields = data.fields || [];
+  const richFields = data.richFields || data.meta.richFields || [];
   const iterables = data.iterables || data.meta.iterables || [];
   const ctx = data.meta.context || {};
 
   state = {
     scalarFields: fields,
     scalars: flattenScalars(ctx, fields),
+    richFields,
+    rich: flattenScalars(ctx, richFields),
     iterables: iterables.map((it) => ({
       name: it.name,
       itemVar: it.itemVar || 'item',

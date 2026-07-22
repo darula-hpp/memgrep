@@ -16,6 +16,7 @@ export type DocContextFile = {
   template: string;
   context: Record<string, unknown>;
   fields: string[];
+  richFields?: string[];
   iterables?: IterableSchema[];
   updatedAt: string;
   createdAt: string;
@@ -76,7 +77,9 @@ export class DocsService {
     return full;
   }
 
-  async extract(template: string): Promise<{ fields: string[]; iterables: IterableSchema[] }> {
+  async extract(
+    template: string,
+  ): Promise<{ fields: string[]; richFields: string[]; iterables: IterableSchema[] }> {
     const buf = readFileSync(this.resolveTemplatePath(template));
     return extractFields(buf);
   }
@@ -125,6 +128,7 @@ export class DocsService {
       template: templateName,
       context: input.context,
       fields: schema.fields,
+      richFields: schema.richFields,
       iterables: schema.iterables,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -146,6 +150,7 @@ export class DocsService {
     name: string;
     meta: DocContextFile;
     fields: string[];
+    richFields: string[];
     iterables: IterableSchema[];
   }> {
     const slug = sanitizeSlug(name);
@@ -158,15 +163,17 @@ export class DocsService {
     }
     // Prefer live schema from template so GUI picks up new iterables after template edits.
     let fields = meta.fields ?? [];
+    let richFields = meta.richFields ?? [];
     let iterables = meta.iterables ?? [];
     try {
       const schema = await this.extract(meta.template);
       fields = schema.fields;
+      richFields = schema.richFields;
       iterables = schema.iterables;
     } catch {
       // keep sidecar schema
     }
-    return { name: slug, meta, fields, iterables };
+    return { name: slug, meta, fields, richFields, iterables };
   }
 
   async saveDoc(name: string, context: Record<string, unknown>): Promise<FilledDocInfo> {

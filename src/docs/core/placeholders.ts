@@ -1,4 +1,9 @@
 import nunjucks from 'nunjucks';
+import {
+  extractRichFieldNames,
+  findSoleRichPlaceholder,
+  markdownToOoxmlParagraphs,
+} from './rich.js';
 import { escapeXml } from './xml.js';
 
 const nunjucksEnv = nunjucks.configure({ autoescape: false, throwOnUndefined: false });
@@ -30,13 +35,17 @@ function hasPlaceholders(text: string): boolean {
 /**
  * Within each paragraph, coalesce <w:t> run text so split placeholders become
  * contiguous, then optionally fill them. Non-placeholder XML is left intact.
+ *
+ * `{{ field | rich }}` alone in a paragraph is replaced with Markdown→OOXML
+ * paragraphs (bold/italic/headings/lists/indent).
  */
 export function processParagraphsXml(
   xml: string,
   mode: 'extract' | 'fill',
   data: Record<string, unknown> = {},
-): { xml: string; fields: string[] } {
+): { xml: string; fields: string[]; richFields: string[] } {
   const fields = new Set<string>();
+  const richFields = new Set<string>();
 
   const nextXml = xml.replace(/<w:p\b[\s\S]*?<\/w:p>/g, (paragraph) => {
     const runs: Array<{ open: string; text: string; close: string }> = [];
@@ -55,8 +64,20 @@ export function processParagraphsXml(
     }
 
     const joined = runs.map((r) => r.text).join('');
+    for (const name of extractRichFieldNames(joined)) {
+      richFields.add(name);
+    }
     for (const name of extractFieldNames(joined)) {
       fields.add(name);
+    }
+
+    const richName = findSoleRichPlaceholder(joined);
+    if (richName) {
+      if (mode === 'extract') {
+        return paragraph;
+      }
+      const value = resolvePlaceholder(richName, data);
+      return markdownToOoxmlParagraphs(value == null ? '' : String(value));
     }
 
     if (mode === 'extract' || !hasPlaceholders(joined)) {
@@ -76,7 +97,11 @@ export function processParagraphsXml(
     });
   });
 
-  return { xml: nextXml, fields: [...fields].sort() };
+  return {
+    xml: nextXml,
+    fields: [...fields].sort(),
+    richFields: [...richFields].sort(),
+  };
 }
 
 function ensureXmlSpace(openTag: string, text: string): string {

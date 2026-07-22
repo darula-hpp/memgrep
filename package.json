@@ -1,6 +1,6 @@
 {
   "name": "memgrep",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "Local agent memory, coding loop, Cursor from Telegram, scheduled playbooks, and MCP tools.",
   "keywords": [
     "semantic-search",
@@ -71,6 +71,7 @@
     "google-auth-library": "^10.9.0",
     "hnswlib-node": "^3.0.0",
     "jszip": "^3.10.1",
+    "marked": "^18.0.7",
     "nunjucks": "^3.2.4",
     "picocolors": "^1.1.1",
     "undici": "^6.27.0",
@@ -81,6 +82,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
     "@types/jszip": "^3.4.0",
+    "@types/marked": "^5.0.2",
     "@types/node": "^20.0.0",
     "@types/nunjucks": "^3.2.6",
     "@types/ws": "^8.18.1",

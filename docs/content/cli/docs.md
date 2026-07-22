@@ -42,6 +42,29 @@ Scalar fields:
 {{ meeting.date }}
 ```
 
+### Rich text (Markdown → Word)
+
+Put this **alone in its own paragraph**:
+
+```text
+{{ deliberations | rich }}
+```
+
+Context value is Markdown. Supported:
+
+- `**bold**` / `*italic*`
+- `#` / `##` / `###` headings
+- bullet / numbered lists (nest for indentation)
+- `>` blockquote indentation
+
+```json
+{
+  "deliberations": "## 3.1 Review\n\n**Closed:** DSTV pending…\n\n- Item one\n  - Nested detail\n\n> Note indented"
+}
+```
+
+The docs editor shows a Markdown toolbar for `| rich` fields.
+
 ### Table row loops
 
 Repeat a table row (or block of rows) with Nunjucks-style tags:

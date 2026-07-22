@@ -970,7 +970,7 @@ function registerDocsTools(server: McpServer, docs: DocsTools): void {
     'docs_extract',
     {
       description:
-        'Extract {{ field }} names and {% for item in collection %} table-row iterables from a Word template under .memgrep/templates.',
+        'Extract {{ field }}, {{ field | rich }} (Markdown), and {% for item in collection %} table-row iterables from a Word template under .memgrep/templates.',
       inputSchema: {
         template: z.string().describe('Template filename, e.g. minutes.docx'),
       },

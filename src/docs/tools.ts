@@ -41,6 +41,10 @@ export class DocsTools {
         lines.push('Fields:');
         for (const f of schema.fields) lines.push(`  - ${f}`);
       }
+      if (schema.richFields.length) {
+        lines.push('Rich fields (Markdown → Word):');
+        for (const f of schema.richFields) lines.push(`  - {{ ${f} | rich }}`);
+      }
       if (schema.iterables.length) {
         lines.push('Iterables (table rows):');
         for (const it of schema.iterables) {
@@ -51,7 +55,7 @@ export class DocsTools {
       }
       if (!lines.length) {
         return {
-          text: `No {{ placeholders }} or {% for %} loops found in ${input.template}`,
+          text: `No {{ placeholders }}, {{ x | rich }}, or {% for %} loops found in ${input.template}`,
         };
       }
       return { text: lines.join('\n') };

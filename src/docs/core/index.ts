@@ -9,3 +9,8 @@ export {
 export { escapeXml } from './xml.js';
 export { buildMinimalDocx, paragraphWithRuns, table, tableRow } from './fixture.js';
 export { extractLoopSchema, processTableLoops } from './loops.js';
+export {
+  extractRichFieldNames,
+  findSoleRichPlaceholder,
+  markdownToOoxmlParagraphs,
+} from './rich.js';

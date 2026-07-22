@@ -7,6 +7,7 @@ const WORD_XML_PATH =
 
 export type ExtractResult = {
   fields: string[];
+  richFields: string[];
   iterables: IterableSchema[];
 };
 
@@ -23,12 +24,14 @@ function listWordXmlPaths(zip: JSZip): string[] {
 export async function extractFields(docx: Buffer | Uint8Array): Promise<ExtractResult> {
   const zip = await loadZip(docx);
   const fields = new Set<string>();
+  const richFields = new Set<string>();
   const iterables = new Map<string, IterableSchema>();
 
   for (const xmlPath of listWordXmlPaths(zip)) {
     const xml = await zip.file(xmlPath)!.async('string');
     const schema = extractLoopSchema(xml);
     for (const f of schema.fields) fields.add(f);
+    for (const f of schema.richFields) richFields.add(f);
     for (const it of schema.iterables) {
       const existing = iterables.get(it.name);
       if (!existing) {
@@ -42,8 +45,12 @@ export async function extractFields(docx: Buffer | Uint8Array): Promise<ExtractR
     }
   }
 
+  // Prefer rich over scalar if both somehow appear
+  for (const f of richFields) fields.delete(f);
+
   return {
     fields: [...fields].sort(),
+    richFields: [...richFields].sort(),
     iterables: [...iterables.values()].sort((a, b) => a.name.localeCompare(b.name)),
   };
 }
@@ -57,7 +64,7 @@ export async function fillDocument(
 
   for (const xmlPath of listWordXmlPaths(zip)) {
     const xml = await zip.file(xmlPath)!.async('string');
-    // Expands {% for %} table rows when present, then fills {{ placeholders }}.
+    // Expands {% for %} table rows when present, then fills {{ }} / {{ | rich }}.
     const looped = processTableLoops(xml, 'fill', nested);
     zip.file(xmlPath, looped.xml);
   }

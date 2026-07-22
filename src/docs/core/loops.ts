@@ -279,14 +279,16 @@ export function processTableLoops(
   };
 }
 
-/** Extract iterable + scalar schema from Word XML (document/header/footer). */
+/** Extract iterable + scalar + rich schema from Word XML (document/header/footer). */
 export function extractLoopSchema(xml: string): {
   iterables: IterableSchema[];
   fields: string[];
+  richFields: string[];
 } {
   const looped = processTableLoops(xml, 'extract');
   const paras = processParagraphsXml(xml, 'extract');
   const fields = new Set<string>([...looped.scalarFields, ...paras.fields]);
+  const richFields = new Set<string>(paras.richFields);
 
   // Remove item.field refs that belong to iterables from scalar list
   for (const it of looped.iterables) {
@@ -306,8 +308,14 @@ export function extractLoopSchema(xml: string): {
     }
   }
 
+  // Rich fields are not plain scalars
+  for (const f of richFields) {
+    fields.delete(f);
+  }
+
   return {
     iterables: looped.iterables,
     fields: [...fields].sort(),
+    richFields: [...richFields].sort(),
   };
 }
