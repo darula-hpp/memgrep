@@ -48,3 +48,21 @@ export function paragraphWithRuns(...texts: string[]): string {
     .join('\n');
   return `    <w:p>\n${runs}\n    </w:p>`;
 }
+
+/** Minimal table row with one cell per text run group. */
+export function tableRow(cells: string[]): string {
+  const cellXml = cells
+    .map(
+      (text) => `      <w:tc>
+        <w:p>
+          <w:r><w:t>${text}</w:t></w:r>
+        </w:p>
+      </w:tc>`,
+    )
+    .join('\n');
+  return `    <w:tr>\n${cellXml}\n    </w:tr>`;
+}
+
+export function table(rows: string[]): string {
+  return `    <w:tbl>\n${rows.join('\n')}\n    </w:tbl>`;
+}

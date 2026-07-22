@@ -969,7 +969,8 @@ function registerDocsTools(server: McpServer, docs: DocsTools): void {
   server.registerTool(
     'docs_extract',
     {
-      description: 'Extract {{ field }} names from a Word template under .memgrep/templates.',
+      description:
+        'Extract {{ field }} names and {% for item in collection %} table-row iterables from a Word template under .memgrep/templates.',
       inputSchema: {
         template: z.string().describe('Template filename, e.g. minutes.docx'),
       },
@@ -981,12 +982,14 @@ function registerDocsTools(server: McpServer, docs: DocsTools): void {
     'docs_fill',
     {
       description:
-        'Fill a Word template with context and write <cwd>/.memgrep/docs/<name>.docx plus a .context.json sidecar for re-editing.',
+        'Fill a Word template with context (scalars + arrays for table row loops) and write <cwd>/.memgrep/docs/<name>.docx plus a .context.json sidecar for re-editing.',
       inputSchema: {
         template: z.string().describe('Template filename under .memgrep/templates'),
         context: z
           .record(z.string(), z.unknown())
-          .describe('Field values; dotted keys like meeting.date are supported'),
+          .describe(
+            'Field values; dotted keys like meeting.date; arrays of objects for {% for item in name %} loops',
+          ),
         name: z.string().optional().describe('Output slug (default: template basename)'),
       },
     },

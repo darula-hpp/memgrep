@@ -1,11 +1,13 @@
 import JSZip from 'jszip';
-import { nestDottedKeys, processParagraphsXml } from './placeholders.js';
+import { extractLoopSchema, processTableLoops, type IterableSchema } from './loops.js';
+import { nestDottedKeys } from './placeholders.js';
 
 const WORD_XML_PATH =
   /^word\/(document\.xml|header\d*\.xml|footer\d*\.xml|footnotes\.xml|endnotes\.xml)$/;
 
 export type ExtractResult = {
   fields: string[];
+  iterables: IterableSchema[];
 };
 
 async function loadZip(docx: Buffer | Uint8Array): Promise<JSZip> {
@@ -21,16 +23,29 @@ function listWordXmlPaths(zip: JSZip): string[] {
 export async function extractFields(docx: Buffer | Uint8Array): Promise<ExtractResult> {
   const zip = await loadZip(docx);
   const fields = new Set<string>();
+  const iterables = new Map<string, IterableSchema>();
 
   for (const xmlPath of listWordXmlPaths(zip)) {
     const xml = await zip.file(xmlPath)!.async('string');
-    const result = processParagraphsXml(xml, 'extract');
-    for (const field of result.fields) {
-      fields.add(field);
+    const schema = extractLoopSchema(xml);
+    for (const f of schema.fields) fields.add(f);
+    for (const it of schema.iterables) {
+      const existing = iterables.get(it.name);
+      if (!existing) {
+        iterables.set(it.name, { ...it, fields: [...it.fields] });
+        continue;
+      }
+      for (const f of it.fields) {
+        if (!existing.fields.includes(f)) existing.fields.push(f);
+      }
+      existing.fields.sort();
     }
   }
 
-  return { fields: [...fields].sort() };
+  return {
+    fields: [...fields].sort(),
+    iterables: [...iterables.values()].sort((a, b) => a.name.localeCompare(b.name)),
+  };
 }
 
 export async function fillDocument(
@@ -42,8 +57,9 @@ export async function fillDocument(
 
   for (const xmlPath of listWordXmlPaths(zip)) {
     const xml = await zip.file(xmlPath)!.async('string');
-    const result = processParagraphsXml(xml, 'fill', nested);
-    zip.file(xmlPath, result.xml);
+    // Expands {% for %} table rows when present, then fills {{ placeholders }}.
+    const looped = processTableLoops(xml, 'fill', nested);
+    zip.file(xmlPath, looped.xml);
   }
 
   const output = await zip.generateAsync({
@@ -54,3 +70,5 @@ export async function fillDocument(
 
   return Buffer.from(output);
 }
+
+export type { IterableSchema };

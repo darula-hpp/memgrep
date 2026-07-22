@@ -35,13 +35,26 @@ export class DocsTools {
 
   async extract(input: { template: string }): Promise<ToolResult> {
     try {
-      const fields = await this.service.extract(input.template);
-      return {
-        text:
-          fields.length === 0
-            ? `No {{ placeholders }} found in ${input.template}`
-            : fields.map((f) => `- ${f}`).join('\n'),
-      };
+      const schema = await this.service.extract(input.template);
+      const lines: string[] = [];
+      if (schema.fields.length) {
+        lines.push('Fields:');
+        for (const f of schema.fields) lines.push(`  - ${f}`);
+      }
+      if (schema.iterables.length) {
+        lines.push('Iterables (table rows):');
+        for (const it of schema.iterables) {
+          lines.push(
+            `  - ${it.name} as ${it.itemVar} → ${it.fields.length ? it.fields.join(', ') : '(no item fields)'}`,
+          );
+        }
+      }
+      if (!lines.length) {
+        return {
+          text: `No {{ placeholders }} or {% for %} loops found in ${input.template}`,
+        };
+      }
+      return { text: lines.join('\n') };
     } catch (error) {
       return { text: error instanceof Error ? error.message : String(error), isError: true };
     }

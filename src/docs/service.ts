@@ -7,7 +7,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { writeFileAtomic } from '../fs/atomic-write.js';
-import { extractFields, fillDocument } from './core/index.js';
+import { extractFields, fillDocument, type IterableSchema } from './core/index.js';
 import { editorLockPath, projectDocsDir, projectTemplatesDir } from './paths.js';
 import { ensureDocsDirs } from './setup.js';
 
@@ -16,6 +16,7 @@ export type DocContextFile = {
   template: string;
   context: Record<string, unknown>;
   fields: string[];
+  iterables?: IterableSchema[];
   updatedAt: string;
   createdAt: string;
 };
@@ -75,10 +76,9 @@ export class DocsService {
     return full;
   }
 
-  async extract(template: string): Promise<string[]> {
+  async extract(template: string): Promise<{ fields: string[]; iterables: IterableSchema[] }> {
     const buf = readFileSync(this.resolveTemplatePath(template));
-    const { fields } = await extractFields(buf);
-    return fields;
+    return extractFields(buf);
   }
 
   listDocs(): FilledDocInfo[] {
@@ -112,7 +112,7 @@ export class DocsService {
     const templatePath = this.resolveTemplatePath(input.template);
     const templateName = path.basename(templatePath);
     const slug = sanitizeSlug(input.name ?? templateName.replace(/\.docx$/i, ''));
-    const fields = await this.extract(templateName);
+    const schema = await this.extract(templateName);
     const templateBuf = readFileSync(templatePath);
     const filled = await fillDocument(templateBuf, input.context);
 
@@ -124,7 +124,8 @@ export class DocsService {
       version: 1,
       template: templateName,
       context: input.context,
-      fields,
+      fields: schema.fields,
+      iterables: schema.iterables,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -145,6 +146,7 @@ export class DocsService {
     name: string;
     meta: DocContextFile;
     fields: string[];
+    iterables: IterableSchema[];
   }> {
     const slug = sanitizeSlug(name);
     const meta = this.readContext(slug);
@@ -154,7 +156,17 @@ export class DocsService {
     if (!existsSync(this.docxPath(slug))) {
       throw new Error(`Docx missing for "${slug}"`);
     }
-    return { name: slug, meta, fields: meta.fields };
+    // Prefer live schema from template so GUI picks up new iterables after template edits.
+    let fields = meta.fields ?? [];
+    let iterables = meta.iterables ?? [];
+    try {
+      const schema = await this.extract(meta.template);
+      fields = schema.fields;
+      iterables = schema.iterables;
+    } catch {
+      // keep sidecar schema
+    }
+    return { name: slug, meta, fields, iterables };
   }
 
   async saveDoc(name: string, context: Record<string, unknown>): Promise<FilledDocInfo> {

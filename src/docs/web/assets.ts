@@ -14,7 +14,7 @@ export const EDITOR_HTML = `<!doctype html>
         <header class="brand">
           <p class="brand-mark">memgrep docs</p>
           <h1>Edit filled Word fields</h1>
-          <p class="lede">Changes re-fill from the original template and overwrite the doc in <code>.memgrep/docs</code>.</p>
+          <p class="lede">Changes re-fill from the original template and overwrite the doc in <code>.memgrep/docs</code>. Iterable table rows support add/remove.</p>
         </header>
         <section class="panel">
           <label class="field">
@@ -22,7 +22,7 @@ export const EDITOR_HTML = `<!doctype html>
             <select id="docSelect"></select>
           </label>
           <p id="meta" class="status"></p>
-          <form id="fieldsForm" class="fields"></form>
+          <div id="fieldsForm" class="fields"></div>
           <p id="error" class="error" hidden></p>
           <p id="status" class="status"></p>
           <div class="actions">
@@ -64,7 +64,7 @@ button, input, textarea, select { font: inherit; }
 }
 
 .shell {
-  width: min(720px, calc(100% - 2rem));
+  width: min(880px, calc(100% - 2rem));
   margin: 0 auto;
   padding: 3.5rem 0 4rem;
 }
@@ -83,21 +83,54 @@ button, input, textarea, select { font: inherit; }
   font-weight: 600;
 }
 
-.lede { margin: 0.75rem 0 0; color: var(--muted); max-width: 46ch; }
+.lede { margin: 0.75rem 0 0; color: var(--muted); max-width: 52ch; }
 .panel {
   margin-top: 1.75rem;
   padding: 1.35rem;
   background: var(--panel);
   border: 1px solid var(--line);
 }
-.fields { display: grid; gap: 0.9rem; margin-top: 1rem; }
+.fields { display: grid; gap: 1.25rem; margin-top: 1rem; }
 .field { display: grid; gap: 0.35rem; }
-.field span { font-size: 0.92rem; font-weight: 600; }
-.field textarea, .field select {
+.field > span, .section-title { font-size: 0.92rem; font-weight: 600; }
+.field textarea, .field select, .field input {
   width: 100%;
   padding: 0.7rem 0.8rem;
   border: 1px solid var(--line);
   background: #fff;
+}
+.iterable {
+  border: 1px solid var(--line);
+  padding: 0.9rem;
+  background: rgba(255,255,255,0.65);
+}
+.iterable-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.iterable-head p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.rows { display: grid; gap: 0.75rem; }
+.row {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed rgba(31, 107, 74, 0.35);
+  background: #fff;
+}
+.row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.row-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 .actions {
   display: flex;
@@ -107,7 +140,7 @@ button, input, textarea, select { font: inherit; }
 }
 button {
   border: 0;
-  padding: 0.75rem 1.1rem;
+  padding: 0.65rem 1rem;
   background: var(--accent);
   color: var(--accent-ink);
   cursor: pointer;
@@ -116,6 +149,11 @@ button.ghost {
   background: transparent;
   color: var(--muted);
   border: 1px solid var(--line);
+}
+button.danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid rgba(138, 47, 47, 0.35);
 }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
 .status { color: var(--muted); margin: 0.75rem 0 0; }
@@ -138,23 +176,180 @@ const reloadBtn = document.getElementById('reloadBtn');
 
 const params = new URLSearchParams(location.search);
 let currentName = params.get('name') || '';
+let state = { scalars: {}, iterables: [] };
 
 function showError(msg) {
   errorEl.hidden = !msg;
   errorEl.textContent = msg || '';
 }
 
-function flatContext(context) {
-  const out = {};
-  function walk(obj, prefix) {
-    for (const [k, v] of Object.entries(obj || {})) {
-      const key = prefix ? prefix + '.' + k : k;
-      if (v && typeof v === 'object' && !Array.isArray(v)) walk(v, key);
-      else out[key] = v == null ? '' : String(v);
-    }
+function getByPath(obj, path) {
+  const parts = path.split('.');
+  let cur = obj;
+  for (const p of parts) {
+    if (!cur || typeof cur !== 'object') return undefined;
+    cur = cur[p];
   }
-  walk(context, '');
+  return cur;
+}
+
+function setByPath(obj, path, value) {
+  const parts = path.split('.');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i];
+    if (!cur[p] || typeof cur[p] !== 'object' || Array.isArray(cur[p])) cur[p] = {};
+    cur = cur[p];
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+
+function flattenScalars(context, fields) {
+  const out = {};
+  for (const field of fields) {
+    const v = getByPath(context, field);
+    out[field] = v == null ? '' : String(v);
+  }
   return out;
+}
+
+function emptyRow(fields) {
+  const row = {};
+  for (const f of fields) row[f === '_value' ? '_value' : f] = '';
+  return row;
+}
+
+function normalizeRows(raw, fields) {
+  if (!Array.isArray(raw)) return [emptyRow(fields)];
+  return raw.map((item) => {
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const row = {};
+      for (const f of fields) {
+        if (f === '_value') row._value = item._value != null ? String(item._value) : '';
+        else row[f] = item[f] != null ? String(item[f]) : '';
+      }
+      return row;
+    }
+    return { _value: item == null ? '' : String(item) };
+  });
+}
+
+function render() {
+  form.innerHTML = '';
+
+  if (state.scalarFields.length) {
+    const section = document.createElement('div');
+    const title = document.createElement('div');
+    title.className = 'section-title';
+    title.textContent = 'Fields';
+    section.appendChild(title);
+    for (const field of state.scalarFields) {
+      const label = document.createElement('label');
+      label.className = 'field';
+      const span = document.createElement('span');
+      span.textContent = field;
+      const ta = document.createElement('textarea');
+      ta.dataset.kind = 'scalar';
+      ta.dataset.field = field;
+      ta.rows = /summary|notes|description/i.test(field) ? 4 : 2;
+      ta.value = state.scalars[field] ?? '';
+      ta.addEventListener('input', () => { state.scalars[field] = ta.value; });
+      label.appendChild(span);
+      label.appendChild(ta);
+      section.appendChild(label);
+    }
+    form.appendChild(section);
+  }
+
+  for (const it of state.iterables) {
+    const box = document.createElement('div');
+    box.className = 'iterable';
+    box.dataset.name = it.name;
+
+    const head = document.createElement('div');
+    head.className = 'iterable-head';
+    const left = document.createElement('div');
+    const h = document.createElement('div');
+    h.className = 'section-title';
+    h.textContent = it.name;
+    const p = document.createElement('p');
+    p.textContent = 'for ' + it.itemVar + ' in ' + it.name + ' · columns: ' + (it.fields.join(', ') || '_value');
+    left.appendChild(h);
+    left.appendChild(p);
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.textContent = 'Add row';
+    addBtn.addEventListener('click', () => {
+      it.rows.push(emptyRow(it.fields));
+      render();
+    });
+    head.appendChild(left);
+    head.appendChild(addBtn);
+    box.appendChild(head);
+
+    const rowsEl = document.createElement('div');
+    rowsEl.className = 'rows';
+    it.rows.forEach((row, idx) => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'row';
+      const rowHead = document.createElement('div');
+      rowHead.className = 'row-head';
+      rowHead.innerHTML = '<span>Row ' + (idx + 1) + '</span>';
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'danger';
+      rm.textContent = 'Remove';
+      rm.addEventListener('click', () => {
+        it.rows.splice(idx, 1);
+        if (!it.rows.length) it.rows.push(emptyRow(it.fields));
+        render();
+      });
+      rowHead.appendChild(rm);
+      rowEl.appendChild(rowHead);
+
+      const grid = document.createElement('div');
+      grid.className = 'row-grid';
+      for (const field of it.fields) {
+        const label = document.createElement('label');
+        label.className = 'field';
+        const span = document.createElement('span');
+        span.textContent = field === '_value' ? it.itemVar : field;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = row[field] ?? '';
+        input.addEventListener('input', () => { row[field] = input.value; });
+        label.appendChild(span);
+        label.appendChild(input);
+        grid.appendChild(label);
+      }
+      rowEl.appendChild(grid);
+      rowsEl.appendChild(rowEl);
+    });
+    box.appendChild(rowsEl);
+    form.appendChild(box);
+  }
+
+  const scalarCount = state.scalarFields.length;
+  const rowCount = state.iterables.reduce((n, it) => n + it.rows.length, 0);
+  statusEl.textContent = scalarCount + ' field(s), ' + state.iterables.length + ' iterable(s), ' + rowCount + ' row(s)';
+}
+
+function buildContext() {
+  const context = {};
+  for (const [k, v] of Object.entries(state.scalars)) setByPath(context, k, v);
+  for (const it of state.iterables) {
+    const rows = it.rows.map((row) => {
+      if (it.fields.length === 1 && it.fields[0] === '_value') return row._value ?? '';
+      const obj = {};
+      for (const f of it.fields) {
+        if (f === '_value') continue;
+        obj[f] = row[f] ?? '';
+      }
+      return obj;
+    });
+    setByPath(context, it.name, rows);
+  }
+  return context;
 }
 
 async function loadList() {
@@ -180,23 +375,22 @@ async function loadDoc(name) {
   if (!res.ok) throw new Error(data.error || 'Failed to load doc');
   currentName = data.name;
   metaEl.textContent = 'Template: ' + data.meta.template + ' · updated ' + (data.meta.updatedAt || '');
-  const values = flatContext(data.meta.context || {});
-  const fields = data.fields?.length ? data.fields : Object.keys(values);
-  form.innerHTML = '';
-  for (const field of fields) {
-    const label = document.createElement('label');
-    label.className = 'field';
-    const span = document.createElement('span');
-    span.textContent = field;
-    const ta = document.createElement('textarea');
-    ta.name = field;
-    ta.rows = field.toLowerCase().includes('summary') || field.toLowerCase().includes('notes') ? 4 : 2;
-    ta.value = values[field] ?? '';
-    label.appendChild(span);
-    label.appendChild(ta);
-    form.appendChild(label);
-  }
-  statusEl.textContent = fields.length + ' field' + (fields.length === 1 ? '' : 's');
+
+  const fields = data.fields || [];
+  const iterables = data.iterables || data.meta.iterables || [];
+  const ctx = data.meta.context || {};
+
+  state = {
+    scalarFields: fields,
+    scalars: flattenScalars(ctx, fields),
+    iterables: iterables.map((it) => ({
+      name: it.name,
+      itemVar: it.itemVar || 'item',
+      fields: it.fields?.length ? it.fields : ['_value'],
+      rows: normalizeRows(getByPath(ctx, it.name), it.fields?.length ? it.fields : ['_value']),
+    })),
+  };
+  render();
 }
 
 async function saveDoc() {
@@ -204,10 +398,7 @@ async function saveDoc() {
   statusEl.textContent = 'Saving…';
   saveBtn.disabled = true;
   try {
-    const context = {};
-    for (const el of form.querySelectorAll('textarea')) {
-      context[el.name] = el.value;
-    }
+    const context = buildContext();
     const res = await fetch('/api/doc/' + encodeURIComponent(currentName), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -33,7 +33,36 @@ Alias: `memgrep doc …`
 - **fill** — apply JSON context; writes `.memgrep/docs/<slug>.docx` and `.context.json`
 - **edit** — start `127.0.0.1` web UI (default port `8791`); save re-fills from the original template
 
-Placeholders are Nunjucks-style variables only (`{{ name }}`). Loops/conditionals are out of scope for v1.
+### Placeholders
+
+Scalar fields:
+
+```text
+{{ title }}
+{{ meeting.date }}
+```
+
+### Table row loops
+
+Repeat a table row (or block of rows) with Nunjucks-style tags:
+
+```text
+{% for item in attendees %}{{ item.name }}{% endfor %}
+```
+
+Put `{% for item in attendees %}` and `{% endfor %}` in the same row, or on their own marker rows around the template row. Context should include an array:
+
+```json
+{
+  "title": "Retro",
+  "attendees": [
+    { "name": "Ada", "role": "Chair" },
+    { "name": "Bob", "role": "Scribe" }
+  ]
+}
+```
+
+The localhost editor (`docs edit` / `docs_serve`) shows iterable collections with **Add row** / **Remove** controls.
 
 ## MCP
 
