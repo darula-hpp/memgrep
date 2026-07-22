@@ -25,6 +25,7 @@ import { registerGcloudCommand } from './commands/gcloud.js';
 import { registerCursorCommand } from './commands/cursor.js';
 import { registerLoopCommand } from './commands/loop.js';
 import { registerEdgeCommand } from './commands/edge.js';
+import { registerDocsCommand } from './commands/docs.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -63,6 +64,7 @@ export function createProgram(): Command {
   registerCursorCommand(program);
   registerLoopCommand(program);
   registerEdgeCommand(program);
+  registerDocsCommand(program);
 
   return program;
 }

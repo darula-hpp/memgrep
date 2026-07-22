@@ -19,6 +19,7 @@ Common entry points:
 | Loop | `loop init`, `loop use`, `loop run`, `loop status` |
 | Edge | `edge token`, `edge pair`, `edge install`, `edge service` |
 | MCP | `serve` |
+| Docs | `docs setup`, `docs list`, `docs fill`, `docs edit` |
 | Suites | `cursor setup`, `jira setup`, `neon setup`, ... |
 
-See also: [Memory Commands](/docs/cli/memory), [Telegram](/docs/cli/telegram), [Jobs](/docs/cli/jobs), [Loop](/docs/cli/loop), [Edge](/docs/cli/edge), [Edge Hub guide](/docs/guides/edge-hub).
+See also: [Memory Commands](/docs/cli/memory), [Telegram](/docs/cli/telegram), [Jobs](/docs/cli/jobs), [Loop](/docs/cli/loop), [Docs](/docs/cli/docs), [Edge](/docs/cli/edge), [Edge Hub guide](/docs/guides/edge-hub).

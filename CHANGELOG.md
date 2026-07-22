@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-07-22
+
+### Added
+
+- **Docs suite (templated Word)** - project-local Jinja-style `.docx` fill with `jszip` + `nunjucks`. Templates live in `<cwd>/.memgrep/templates/`; filled output + `.context.json` sidecars in `<cwd>/.memgrep/docs/`. CLI: `memgrep docs setup|status|list|fill|edit` (alias `doc`). MCP (always on): `docs_setup`, `docs_list_templates`, `docs_extract`, `docs_fill`, `docs_list`, `docs_serve`. Localhost field editor on `127.0.0.1:8791` re-fills from the original template on save.
+
 ## [1.6.0] - 2026-07-21
 
 ### Added

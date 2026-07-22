@@ -11,6 +11,7 @@ import type { GcloudTools } from '../gcloud/tools.js';
 import type { CursorTools } from '../cursor/tools.js';
 import type { LoopTools } from '../loop/tools.js';
 import type { EdgeTools } from '../edge/tools.js';
+import type { DocsTools } from '../docs/tools.js';
 
 export type McpToolBundles = {
   jobs?: JobsTools;
@@ -23,6 +24,7 @@ export type McpToolBundles = {
   cursor?: CursorTools;
   loop?: LoopTools;
   edge?: EdgeTools;
+  docs?: DocsTools;
 };
 
 export function createMemgrepMcpServer(
@@ -30,7 +32,7 @@ export function createMemgrepMcpServer(
   bundles: McpToolBundles = {},
 ): McpServer {
   const server = new McpServer({ name: 'memgrep', version: '0.1.0' });
-  const { jobs, jira, productHunt, posthog, neon, upstash, gcloud, cursor, loop, edge } =
+  const { jobs, jira, productHunt, posthog, neon, upstash, gcloud, cursor, loop, edge, docs } =
     bundles;
 
   server.registerTool(
@@ -147,6 +149,10 @@ export function createMemgrepMcpServer(
 
   if (edge) {
     registerEdgeTools(server, edge);
+  }
+
+  if (docs) {
+    registerDocsTools(server, docs);
   }
 
   return server;
@@ -936,5 +942,76 @@ function registerLoopTools(server: McpServer, loop: LoopTools): void {
       inputSchema: { id: z.string(), profile: profileField },
     },
     async (input) => toMcpContent(await loop.removeAction(input)),
+  );
+}
+
+function registerDocsTools(server: McpServer, docs: DocsTools): void {
+  server.registerTool(
+    'docs_setup',
+    {
+      description:
+        'Ensure project-local .memgrep/templates and .memgrep/docs directories exist in the current working directory.',
+      inputSchema: {},
+    },
+    async () => toMcpContent(docs.setup()),
+  );
+
+  server.registerTool(
+    'docs_list_templates',
+    {
+      description:
+        'List .docx templates in <cwd>/.memgrep/templates (Jinja-style {{ placeholders }}).',
+      inputSchema: {},
+    },
+    async () => toMcpContent(docs.listTemplates()),
+  );
+
+  server.registerTool(
+    'docs_extract',
+    {
+      description: 'Extract {{ field }} names from a Word template under .memgrep/templates.',
+      inputSchema: {
+        template: z.string().describe('Template filename, e.g. minutes.docx'),
+      },
+    },
+    async ({ template }) => toMcpContent(await docs.extract({ template })),
+  );
+
+  server.registerTool(
+    'docs_fill',
+    {
+      description:
+        'Fill a Word template with context and write <cwd>/.memgrep/docs/<name>.docx plus a .context.json sidecar for re-editing.',
+      inputSchema: {
+        template: z.string().describe('Template filename under .memgrep/templates'),
+        context: z
+          .record(z.string(), z.unknown())
+          .describe('Field values; dotted keys like meeting.date are supported'),
+        name: z.string().optional().describe('Output slug (default: template basename)'),
+      },
+    },
+    async (input) => toMcpContent(await docs.fill(input)),
+  );
+
+  server.registerTool(
+    'docs_list',
+    {
+      description: 'List filled documents in <cwd>/.memgrep/docs.',
+      inputSchema: {},
+    },
+    async () => toMcpContent(docs.list()),
+  );
+
+  server.registerTool(
+    'docs_serve',
+    {
+      description:
+        'Start (or reuse) a localhost web editor for filled docs. Returns a URL; edits re-fill from the original template and overwrite the docx in place.',
+      inputSchema: {
+        name: z.string().optional().describe('Filled doc slug to open'),
+        port: z.number().int().min(1).max(65535).optional().describe('Port (default 8791)'),
+      },
+    },
+    async (input) => toMcpContent(await docs.serve(input)),
   );
 }

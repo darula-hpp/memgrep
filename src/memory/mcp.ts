@@ -48,6 +48,7 @@ import { LoopTools } from '../loop/tools.js';
 import { ensureEdgeHubToken, readEdgeHubConfig } from '../edge/config.js';
 import { ensureGlobalEdgeHub, setEdgeHub } from '../edge/hub.js';
 import { EdgeTools } from '../edge/tools.js';
+import { openDocsTools } from '../docs/tools.js';
 
 function openJobsTools(storeDir?: string): { jobs: JobsTools; closeJobs: () => void } {
   const jobStore = JobStore.open(storeDir);
@@ -242,6 +243,7 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
   const gcloud = openGcloudTools(storeDir);
   const cursor = openCursorTools(storeDir);
   const loop = openLoopTools(tools, storeDir);
+  const docs = openDocsTools(process.cwd());
   const server = createMemgrepMcpServer(tools, {
     jobs,
     jira,
@@ -252,6 +254,7 @@ export async function startStdioMcpServer(storeDir?: string): Promise<void> {
     gcloud,
     cursor,
     loop,
+    docs,
   });
   await server.connect(new StdioServerTransport());
 }
@@ -283,6 +286,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
   const gcloud = openGcloudTools(options.storeDir);
   const cursor = openCursorTools(options.storeDir);
   const loop = openLoopTools(tools, options.storeDir);
+  const docs = openDocsTools(process.cwd());
 
   const edgeHub = ensureGlobalEdgeHub({ home: options.storeDir ?? defaultHome(), store });
   ensureEdgeHubToken(options.storeDir ?? defaultHome());
@@ -365,6 +369,7 @@ export async function startHttpMcpServer(options: ServeOptions = {}): Promise<Ht
       cursor,
       loop,
       edge,
+      docs,
     });
     try {
       const transport = new StreamableHTTPServerTransport({

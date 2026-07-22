@@ -12,7 +12,7 @@ memgrep is a local control plane for Cursor. It started as searchable agent memo
 | **Loop** | Per-project coding loops: task in, exit conditions, exit actions (including `github_pr`). Runs until PASS, then optional PR / follow-ups. Editable config in `<cwd>/.memgrep/`; named pointer under `~/.memgrep/loops/<name>/`. |
 | **Telegram** | Allowlisted bot drives a **real** local Cursor agent (`@cursor/sdk`) in a real cwd, with memgrep MCP attached mid-task. |
 | **Jobs** | Cron + remembered playbook + Cursor. Schedule the workflows you already trust. |
-| **MCP** | One server for agents: memory + jobs + loop + optional suites (Cursor, Jira, Neon, gcloud, PostHog, Upstash, Product Hunt, …). |
+| **MCP** | One server for agents: memory + jobs + loop + docs (Word templates) + optional suites (Cursor, Jira, Neon, gcloud, PostHog, Upstash, Product Hunt, …). |
 
 **The point:** lock workflows you already figured out. Store once (`remember` / ingest). Recall mid-task instead of reinventing steps every chat. Loop until done. Schedule what should run on a clock. Drive it from the IDE or from your phone.
 
@@ -136,6 +136,9 @@ memgrep jobs add|list|show|run|logs|daemon|install|service|...
 # MCP server
 memgrep serve [--http] [--host 127.0.0.1] [--port 3921] [--token <token>] [--allowed-host <host>]
 
+# Docs (Word templates → .memgrep/docs; MCP docs_* always on)
+memgrep docs setup|status|list|fill|edit
+
 # Optional suites (tools omitted until configured)
 memgrep jira|neon|gcloud|posthog|upstash|producthunt setup|status
 # Loop: use `loop init` / `loop setup` (not `<suite> setup`)
@@ -206,15 +209,16 @@ One MCP server. Register once per client.
 
 Config: Cursor `~/.cursor/mcp.json`, Claude Code `claude mcp add memgrep -- npx -y memgrep serve`, Kiro `~/.kiro/settings/mcp.json`.
 
-**Always on the wire:** `recall`, `get_chat`, `list_chats`, `remember`, `resolve_open`, `jobs_*`.  
+**Always on the wire:** `recall`, `get_chat`, `list_chats`, `remember`, `resolve_open`, `jobs_*`, `docs_*`.  
 **When configured:** `loop_*`, `cursor_*`, plus optional suites below.
 
 ### Optional MCP suites
 
-Unconfigured suites are omitted from the tool list.
+Unconfigured credential suites are omitted from the tool list. **Docs** is always registered.
 
 | Suite | Configure | Purpose |
 | --- | --- | --- |
+| `docs` | `memgrep docs setup` (optional; creates dirs) | Jinja-style Word fill (`docs_fill`, `docs_serve`, …) under `.memgrep/templates` → `.memgrep/docs` |
 | `cursor` | `memgrep cursor setup` | Local `@cursor/sdk` agent (`cursor_workspaces`, `cursor_status`, `cursor_run`) |
 | `loop` | `memgrep loop init` / `loop setup` | Coding loop (`loop_run`, `loop_status`, upsert defaults) |
 | `jira` | `memgrep jira setup` | Issues, comments, transitions |

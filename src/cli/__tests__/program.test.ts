@@ -9,6 +9,7 @@ describe('createProgram', () => {
       'copy',
       'cursor',
       'delete',
+      'docs',
       'edge',
       'gcloud',
       'index',
@@ -29,6 +30,15 @@ describe('createProgram', () => {
       'telegram',
       'upstash',
     ]);
+  });
+
+  it('registers docs subcommands', () => {
+    const program = createProgram();
+    const docs = program.commands.find((c) => c.name() === 'docs');
+    expect(docs).toBeDefined();
+    expect(docs!.aliases()).toContain('doc');
+    const sub = docs!.commands.map((c) => c.name()).sort();
+    expect(sub).toEqual(['edit', 'fill', 'list', 'setup', 'status']);
   });
 
   it('registers edge subcommands', () => {

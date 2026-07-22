@@ -49,6 +49,7 @@ export const nav: NavSection[] = [
       { title: 'Telegram', slug: 'telegram' },
       { title: 'Jobs', slug: 'jobs' },
       { title: 'Loop', slug: 'loop' },
+      { title: 'Docs', slug: 'docs' },
       { title: 'Edge', slug: 'edge' },
     ],
   },
