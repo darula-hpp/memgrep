@@ -23,6 +23,10 @@ This has **bold** and *italic*.
 `);
     expect(xml).toMatch(/<w:b\/>/);
     expect(xml).toMatch(/<w:i\/>/);
+    expect(xml).toMatch(/w:ascii="Arial"/);
+    expect(xml).toMatch(/w:val="24"/); // 12pt
+    expect(xml).not.toMatch(/w:val="28"/);
+    expect(xml).not.toMatch(/w:val="32"/);
     expect(xml).toMatch(/Review/);
     expect(xml).toMatch(/Item one/);
     expect(xml).toMatch(/Nested indent/);
@@ -53,6 +57,8 @@ This has **bold** and *italic*.
     expect(xml).toMatch(/Closed/);
     expect(xml).toMatch(/DSTV/);
     expect(xml).toMatch(/<w:b\/>/);
+    expect(xml).toMatch(/w:ascii="Arial"/);
+    expect(xml).toMatch(/w:val="24"/);
     expect(xml).not.toMatch(/\| rich/);
     expect(xml).not.toMatch(/\{\{/);
   });

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-07-22
+
+### Changed
+
+- **Docs `| rich` font** - Markdown rich fills always emit Arial 12pt (headings stay bold, no size bump) so minutes don’t fall back to Calibri.
+
 ## [1.6.3] - 2026-07-22
 
 ### Added

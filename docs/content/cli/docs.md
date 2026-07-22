@@ -53,9 +53,11 @@ Put this **alone in its own paragraph**:
 Context value is Markdown. Supported:
 
 - `**bold**` / `*italic*`
-- `#` / `##` / `###` headings
+- `#` / `##` / `###` headings (bold; body stays Arial 12pt)
 - bullet / numbered lists (nest for indentation)
 - `>` blockquote indentation
+
+Rich output always forces **Arial 12pt** (scalars/loops still inherit the template run styles).
 
 ```json
 {

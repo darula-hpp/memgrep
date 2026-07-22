@@ -6,6 +6,14 @@ export const RICH_PLACEHOLDER_RE = /\{\{\s*([a-zA-Z_][\w.]*)\s*\|\s*rich\s*\}\}/
 
 const TWIPS_PER_INDENT = 720; // 0.5" per indent level
 
+/** Forced face/size for all `| rich` output (Word half-points: 24 = 12pt). */
+export const RICH_FONT = 'Arial';
+export const RICH_FONT_SIZE_HALF_POINTS = 24;
+
+const RICH_RFONTS =
+  `<w:rFonts w:ascii="${RICH_FONT}" w:hAnsi="${RICH_FONT}" w:cs="${RICH_FONT}" w:eastAsia="${RICH_FONT}"/>`;
+const RICH_SZ = `<w:sz w:val="${RICH_FONT_SIZE_HALF_POINTS}"/><w:szCs w:val="${RICH_FONT_SIZE_HALF_POINTS}"/>`;
+
 export function extractRichFieldNames(text: string): string[] {
   const fields = new Set<string>();
   const re = /\{\{\s*([a-zA-Z_][\w.]*)\s*\|\s*rich\s*\}\}/g;
@@ -31,11 +39,12 @@ type InlineRun = { text: string; style: RunStyle };
 
 function runXml(text: string, style: RunStyle = {}): string {
   if (!text) return '';
-  const rPr: string[] = [];
+  // Always Arial 12pt so rich blocks don't fall back to Calibri / theme defaults.
+  const rPr: string[] = [RICH_RFONTS, RICH_SZ];
   if (style.bold) rPr.push('<w:b/><w:bCs/>');
   if (style.italic) rPr.push('<w:i/><w:iCs/>');
   if (style.underline) rPr.push('<w:u w:val="single"/>');
-  const props = rPr.length ? `<w:rPr>${rPr.join('')}</w:rPr>` : '';
+  const props = `<w:rPr>${rPr.join('')}</w:rPr>`;
   const space = /^\s|\s$/.test(text) ? ' xml:space="preserve"' : '';
   return `<w:r>${props}<w:t${space}>${escapeXml(text)}</w:t></w:r>`;
 }
@@ -101,11 +110,9 @@ function paragraphXml(opts: {
 }): string {
   const pPrParts: string[] = [];
   const indentLevel = opts.indentLevel ?? 0;
+  // Headings stay Arial 12 (bold via runs); do not bump size so minutes stay uniform.
   if (opts.headingLevel) {
-    const sz = opts.headingLevel === 1 ? 32 : opts.headingLevel === 2 ? 28 : 24;
-    pPrParts.push(
-      `<w:rPr><w:b/><w:bCs/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr>`,
-    );
+    pPrParts.push(`<w:rPr>${RICH_RFONTS}${RICH_SZ}<w:b/><w:bCs/></w:rPr>`);
   }
   if (opts.listLevel != null) {
     const hanging = 360;
