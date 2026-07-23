@@ -3,6 +3,7 @@ import {
   extractRichFieldNames,
   findSoleRichPlaceholder,
   markdownToOoxmlParagraphs,
+  splitRichSegments,
 } from './rich.js';
 import { escapeXml } from './xml.js';
 
@@ -32,12 +33,50 @@ function hasPlaceholders(text: string): boolean {
   return /\{\{\s*[a-zA-Z_][\w.]*\s*\}\}/.test(text);
 }
 
+function extractPPr(paragraph: string): string {
+  const m = paragraph.match(/<w:pPr\b[\s\S]*?<\/w:pPr>/);
+  return m?.[0] ?? '';
+}
+
+function labelParagraphXml(text: string, pPr: string): string {
+  const space = /^\s|\s$/.test(text) ? ' xml:space="preserve"' : '';
+  return `<w:p>${pPr}<w:r><w:t${space}>${text}</w:t></w:r></w:p>`;
+}
+
+function expandMixedRichParagraph(
+  joined: string,
+  paragraph: string,
+  data: Record<string, unknown>,
+): string {
+  const sole = findSoleRichPlaceholder(joined);
+  if (sole) {
+    const value = resolvePlaceholder(sole, data);
+    return markdownToOoxmlParagraphs(value == null ? '' : String(value));
+  }
+
+  const pPr = extractPPr(paragraph);
+  const segments = splitRichSegments(joined);
+  let out = '';
+  for (const seg of segments) {
+    if (seg.type === 'text') {
+      const filled = fillPlaceholdersInText(seg.text, data);
+      if (filled === '') continue;
+      out += labelParagraphXml(filled, pPr);
+      continue;
+    }
+    const value = resolvePlaceholder(seg.name, data);
+    out += markdownToOoxmlParagraphs(value == null ? '' : String(value));
+  }
+  return out || '<w:p><w:r><w:t></w:t></w:r></w:p>';
+}
+
 /**
  * Within each paragraph, coalesce <w:t> run text so split placeholders become
  * contiguous, then optionally fill them. Non-placeholder XML is left intact.
  *
- * `{{ field | rich }}` alone in a paragraph is replaced with Markdown→OOXML
- * paragraphs (bold/italic/headings/lists/indent).
+ * `{{ field | rich }}` expands to Markdown→OOXML paragraphs even when labels or
+ * other text share the same paragraph. Sole-paragraph rich keeps the previous
+ * whole-`<w:p>` replacement behaviour.
  */
 export function processParagraphsXml(
   xml: string,
@@ -71,13 +110,13 @@ export function processParagraphsXml(
       fields.add(name);
     }
 
-    const richName = findSoleRichPlaceholder(joined);
-    if (richName) {
+    const segments = splitRichSegments(joined);
+    const hasRich = segments.some((s) => s.type === 'rich');
+    if (hasRich) {
       if (mode === 'extract') {
         return paragraph;
       }
-      const value = resolvePlaceholder(richName, data);
-      return markdownToOoxmlParagraphs(value == null ? '' : String(value));
+      return expandMixedRichParagraph(joined, paragraph, data);
     }
 
     if (mode === 'extract' || !hasPlaceholders(joined)) {
@@ -96,6 +135,11 @@ export function processParagraphsXml(
       return `${run.open}${run.close}`;
     });
   });
+
+  // Rich fields are never scalars
+  for (const f of richFields) {
+    fields.delete(f);
+  }
 
   return {
     xml: nextXml,

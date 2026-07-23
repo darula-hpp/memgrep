@@ -23,10 +23,41 @@ export function extractRichFieldNames(text: string): string[] {
   return [...fields];
 }
 
+export type RichSegment =
+  | { type: 'text'; text: string }
+  | { type: 'rich'; name: string };
+
+/** Split coalesced paragraph text into text / rich segments. */
+export function splitRichSegments(text: string): RichSegment[] {
+  const segments: RichSegment[] = [];
+  const re = /\{\{\s*([a-zA-Z_][\w.]*)\s*\|\s*rich\s*\}\}/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', text: text.slice(lastIndex, match.index) });
+    }
+    segments.push({ type: 'rich', name: match[1]! });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    segments.push({ type: 'text', text: text.slice(lastIndex) });
+  }
+  if (segments.length === 0 && text.length > 0) {
+    segments.push({ type: 'text', text });
+  }
+  return segments;
+}
+
+/** True when the paragraph is only a single `{{ field | rich }}` (optional surrounding whitespace). */
 export function findSoleRichPlaceholder(text: string): string | null {
-  const trimmed = text.trim();
-  const m = trimmed.match(/^\{\{\s*([a-zA-Z_][\w.]*)\s*\|\s*rich\s*\}\}$/);
-  return m?.[1] ?? null;
+  const segments = splitRichSegments(text);
+  const rich = segments.filter((s): s is { type: 'rich'; name: string } => s.type === 'rich');
+  if (rich.length !== 1) return null;
+  for (const seg of segments) {
+    if (seg.type === 'text' && seg.text.trim() !== '') return null;
+  }
+  return rich[0]!.name;
 }
 
 type RunStyle = {

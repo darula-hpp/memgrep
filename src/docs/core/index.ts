@@ -17,4 +17,6 @@ export {
   extractRichFieldNames,
   findSoleRichPlaceholder,
   markdownToOoxmlParagraphs,
+  splitRichSegments,
 } from './rich.js';
+export type { RichSegment } from './rich.js';

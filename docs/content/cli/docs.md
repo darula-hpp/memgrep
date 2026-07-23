@@ -44,11 +44,15 @@ Scalar fields:
 
 ### Rich text (Markdown → Word)
 
-Put this **alone in its own paragraph**:
+Use a `| rich` placeholder; it may sit alone in a paragraph or next to a label:
 
 ```text
 {{ deliberations | rich }}
+TEST INFORMATION:{{ test_information | rich }}
+{{ testing_scope | rich }}Out of Scope:
 ```
+
+Sole-paragraph rich replaces that paragraph with Markdown→Word paragraphs. Mixed paragraphs keep the label text (preserving paragraph properties) and inject the Markdown paragraphs at the placeholder site.
 
 Context value is Markdown. Supported:
 
