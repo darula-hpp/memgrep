@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-07-23
+
+### Added
+
+- **Docs block / table loops** - `{% for %}` / `{% endfor %}` on paragraphs around a whole table (or table+paragraph block) clones the block per array item; nested row loops (e.g. `case.steps`) resolve in item scope. Extract reports nested `IterableSchema` (`kind: 'block' | 'rows'`); the localhost editor supports Add case / nested Add row.
+
 ## [1.6.4] - 2026-07-22
 
 ### Changed

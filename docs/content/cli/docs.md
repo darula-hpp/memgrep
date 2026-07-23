@@ -89,6 +89,46 @@ Put `{% for item in attendees %}` and `{% endfor %}` in the same row, or on thei
 
 The localhost editor (`docs edit` / `docs_serve`) shows iterable collections with **Add row** / **Remove** controls.
 
+### Block / table loops
+
+Repeat an entire Word table (or a contiguous block of tables ± paragraphs) once per item in a context array. Put the `{% for %}` / `{% endfor %}` markers on their own paragraphs immediately before and after the table. Nested row loops inside the block resolve against the outer item (Nunjucks scoping):
+
+```text
+{% for case in test_cases %}
+  [ entire test-case table ]
+  TEST CASE #{{ case.number }}
+  {{ case.title }}
+  {% for p in case.steps %}
+    {{ p.number }} | {{ p.test_step_input }} | …
+  {% endfor %}
+{% endfor %}
+```
+
+```json
+{
+  "task_id": "TASK-123",
+  "test_cases": [
+    {
+      "number": "1",
+      "title": "Login happy path",
+      "steps": [
+        {
+          "number": "1",
+          "test_step_input": "Open login",
+          "expected_results": "Form shown",
+          "actual_results": "Form shown",
+          "pass_fail": "PASS"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`docs extract` reports nested iterables (`test_cases` as block → `steps` as rows). The editor shows **Add case** / nested **Add row** for steps. An empty array removes the template table and markers.
+
+Existing single-table row loops are unchanged.
+
 ## MCP
 
 Always registered (no credentials): `docs_setup`, `docs_list_templates`, `docs_extract`, `docs_fill`, `docs_list`, `docs_serve`. Paths resolve from the MCP server process cwd. See [Optional Suites](/docs/mcp/optional-suites).

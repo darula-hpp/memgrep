@@ -21,7 +21,7 @@ describe('table row loops', () => {
     const schema = await extractFields(docx);
     expect(schema.fields).toEqual(['title']);
     expect(schema.iterables).toEqual([
-      { name: 'attendees', itemVar: 'item', fields: ['name', 'role'] },
+      { name: 'attendees', itemVar: 'item', kind: 'rows', fields: ['name', 'role'] },
     ]);
   });
 
@@ -83,6 +83,7 @@ describe('table row loops', () => {
     expect(schema.iterables[0]).toMatchObject({
       name: 'tasks',
       itemVar: 'item',
+      kind: 'rows',
       fields: ['owner', 'title'],
     });
 

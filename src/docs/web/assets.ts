@@ -14,7 +14,7 @@ export const EDITOR_HTML = `<!doctype html>
         <header class="brand">
           <p class="brand-mark">memgrep docs</p>
           <h1>Edit filled Word fields</h1>
-          <p class="lede">Changes re-fill from the original template and overwrite the doc in <code>.memgrep/docs</code>. Iterable table rows support add/remove.</p>
+          <p class="lede">Changes re-fill from the original template and overwrite the doc in <code>.memgrep/docs</code>. Iterable rows and nested block loops (cases → steps) support add/remove.</p>
         </header>
         <section class="panel">
           <label class="field">
@@ -103,6 +103,10 @@ button, input, textarea, select { font: inherit; }
   border: 1px solid var(--line);
   padding: 0.9rem;
   background: rgba(255,255,255,0.65);
+}
+.iterable .iterable {
+  margin-top: 0.75rem;
+  background: rgba(243, 246, 241, 0.9);
 }
 .iterable-head {
   display: flex;
@@ -237,25 +241,87 @@ function flattenScalars(context, fields) {
   return out;
 }
 
-function emptyRow(fields) {
-  const row = {};
+function emptyItem(schema) {
+  const fields = schema.fields?.length ? schema.fields : ['_value'];
+  const row = { __fields: fields, __richFields: schema.richFields || [], __nested: schema.iterables || [] };
   for (const f of fields) row[f === '_value' ? '_value' : f] = '';
+  for (const f of schema.richFields || []) row[f] = '';
+  row.__children = {};
+  for (const nested of schema.iterables || []) {
+    row.__children[nested.name] = [emptyItem(nested)];
+  }
   return row;
 }
 
-function normalizeRows(raw, fields) {
-  if (!Array.isArray(raw)) return [emptyRow(fields)];
+function normalizeItems(raw, schema) {
+  const fields = schema.fields?.length ? schema.fields : ['_value'];
+  if (!Array.isArray(raw) || !raw.length) return [emptyItem(schema)];
   return raw.map((item) => {
     if (item && typeof item === 'object' && !Array.isArray(item)) {
-      const row = {};
+      const row = {
+        __fields: fields,
+        __richFields: schema.richFields || [],
+        __nested: schema.iterables || [],
+        __children: {},
+      };
       for (const f of fields) {
         if (f === '_value') row._value = item._value != null ? String(item._value) : '';
         else row[f] = item[f] != null ? String(item[f]) : '';
       }
+      for (const f of schema.richFields || []) {
+        row[f] = item[f] != null ? String(item[f]) : '';
+      }
+      for (const nested of schema.iterables || []) {
+        row.__children[nested.name] = normalizeItems(item[nested.name], nested);
+      }
       return row;
     }
-    return { _value: item == null ? '' : String(item) };
+    return { ...emptyItem(schema), _value: item == null ? '' : String(item) };
   });
+}
+
+function serializeItems(items, schema) {
+  const fields = schema.fields?.length ? schema.fields : ['_value'];
+  return items.map((row) => {
+    if (fields.length === 1 && fields[0] === '_value' && !(schema.iterables || []).length && !(schema.richFields || []).length) {
+      return row._value ?? '';
+    }
+    const obj = {};
+    for (const f of fields) {
+      if (f === '_value') continue;
+      obj[f] = row[f] ?? '';
+    }
+    for (const f of schema.richFields || []) {
+      obj[f] = row[f] ?? '';
+    }
+    for (const nested of schema.iterables || []) {
+      const childRows = (row.__children && row.__children[nested.name]) || [];
+      obj[nested.name] = serializeItems(childRows, nested);
+    }
+    return obj;
+  });
+}
+
+function countNestedRows(iterables) {
+  let cases = 0;
+  let steps = 0;
+  let flatRows = 0;
+  let hasNested = false;
+  for (const it of iterables) {
+    if (it.kind === 'block' || (it.iterables && it.iterables.length)) {
+      hasNested = true;
+      cases += it.rows.length;
+      for (const row of it.rows) {
+        for (const nestedSchema of it.iterables || []) {
+          const kids = (row.__children && row.__children[nestedSchema.name]) || [];
+          steps += kids.length;
+        }
+      }
+    } else {
+      flatRows += it.rows.length;
+    }
+  }
+  return { cases, steps, flatRows, hasNested };
 }
 
 function wrapSelection(ta, before, after) {
@@ -351,7 +417,7 @@ function render() {
     form.appendChild(renderRichField(field));
   }
 
-  for (const it of state.iterables) {
+  function renderIterable(it, mount) {
     const box = document.createElement('div');
     box.className = 'iterable';
     box.dataset.name = it.name;
@@ -363,14 +429,16 @@ function render() {
     h.className = 'section-title';
     h.textContent = it.name;
     const p = document.createElement('p');
-    p.textContent = 'for ' + it.itemVar + ' in ' + it.name + ' · columns: ' + (it.fields.join(', ') || '_value');
+    const kindLabel = it.kind === 'block' ? 'block' : 'rows';
+    const cols = (it.fields || []).join(', ') || '_value';
+    p.textContent = kindLabel + ' · for ' + it.itemVar + ' in ' + it.name + ' · ' + cols;
     left.appendChild(h);
     left.appendChild(p);
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
-    addBtn.textContent = 'Add row';
+    addBtn.textContent = it.kind === 'block' ? 'Add case' : 'Add row';
     addBtn.addEventListener('click', () => {
-      it.rows.push(emptyRow(it.fields));
+      it.rows.push(emptyItem(it));
       render();
     });
     head.appendChild(left);
@@ -384,14 +452,15 @@ function render() {
       rowEl.className = 'row';
       const rowHead = document.createElement('div');
       rowHead.className = 'row-head';
-      rowHead.innerHTML = '<span>Row ' + (idx + 1) + '</span>';
+      const label = it.kind === 'block' ? 'Case ' : 'Row ';
+      rowHead.innerHTML = '<span>' + label + (idx + 1) + '</span>';
       const rm = document.createElement('button');
       rm.type = 'button';
       rm.className = 'danger';
       rm.textContent = 'Remove';
       rm.addEventListener('click', () => {
         it.rows.splice(idx, 1);
-        if (!it.rows.length) it.rows.push(emptyRow(it.fields));
+        if (!it.rows.length) it.rows.push(emptyItem(it));
         render();
       });
       rowHead.appendChild(rm);
@@ -399,30 +468,74 @@ function render() {
 
       const grid = document.createElement('div');
       grid.className = 'row-grid';
-      for (const field of it.fields) {
-        const label = document.createElement('label');
-        label.className = 'field';
+      for (const field of it.fields || []) {
+        const fieldLabel = document.createElement('label');
+        fieldLabel.className = 'field';
         const span = document.createElement('span');
         span.textContent = field === '_value' ? it.itemVar : field;
         const input = document.createElement('input');
         input.type = 'text';
         input.value = row[field] ?? '';
         input.addEventListener('input', () => { row[field] = input.value; });
-        label.appendChild(span);
-        label.appendChild(input);
-        grid.appendChild(label);
+        fieldLabel.appendChild(span);
+        fieldLabel.appendChild(input);
+        grid.appendChild(fieldLabel);
       }
       rowEl.appendChild(grid);
+
+      for (const field of it.richFields || []) {
+        const fieldLabel = document.createElement('label');
+        fieldLabel.className = 'field';
+        const span = document.createElement('span');
+        span.textContent = field + ' | rich';
+        const ta = document.createElement('textarea');
+        ta.rows = 4;
+        ta.value = row[field] ?? '';
+        ta.addEventListener('input', () => { row[field] = ta.value; });
+        fieldLabel.appendChild(span);
+        fieldLabel.appendChild(ta);
+        rowEl.appendChild(fieldLabel);
+      }
+
+      for (const nested of it.iterables || []) {
+        if (!row.__children) row.__children = {};
+        if (!row.__children[nested.name]) {
+          row.__children[nested.name] = [emptyItem(nested)];
+        }
+        const nestedState = {
+          name: nested.name,
+          itemVar: nested.itemVar || 'item',
+          kind: nested.kind || 'rows',
+          fields: nested.fields?.length ? nested.fields : ['_value'],
+          richFields: nested.richFields || [],
+          iterables: nested.iterables || [],
+          rows: row.__children[nested.name],
+        };
+        // Keep rows array identity in sync when nested mutates via emptyItem pushes
+        nestedState.rows = row.__children[nested.name];
+        renderIterable(nestedState, rowEl);
+      }
+
       rowsEl.appendChild(rowEl);
     });
     box.appendChild(rowsEl);
-    form.appendChild(box);
+    mount.appendChild(box);
+  }
+
+  for (const it of state.iterables) {
+    renderIterable(it, form);
   }
 
   const scalarCount = state.scalarFields.length;
   const richCount = state.richFields.length;
-  const rowCount = state.iterables.reduce((n, it) => n + it.rows.length, 0);
-  statusEl.textContent = scalarCount + ' field(s), ' + richCount + ' rich, ' + state.iterables.length + ' iterable(s), ' + rowCount + ' row(s)';
+  const counts = countNestedRows(state.iterables);
+  if (counts.hasNested) {
+    let status = scalarCount + ' field(s), ' + richCount + ' rich, ' + counts.cases + ' case(s), ' + counts.steps + ' step(s)';
+    if (counts.flatRows) status += ', ' + counts.flatRows + ' row(s)';
+    statusEl.textContent = status;
+  } else {
+    statusEl.textContent = scalarCount + ' field(s), ' + richCount + ' rich, ' + state.iterables.length + ' iterable(s), ' + counts.flatRows + ' row(s)';
+  }
 }
 
 function buildContext() {
@@ -430,16 +543,7 @@ function buildContext() {
   for (const [k, v] of Object.entries(state.scalars)) setByPath(context, k, v);
   for (const [k, v] of Object.entries(state.rich)) setByPath(context, k, v);
   for (const it of state.iterables) {
-    const rows = it.rows.map((row) => {
-      if (it.fields.length === 1 && it.fields[0] === '_value') return row._value ?? '';
-      const obj = {};
-      for (const f of it.fields) {
-        if (f === '_value') continue;
-        obj[f] = row[f] ?? '';
-      }
-      return obj;
-    });
-    setByPath(context, it.name, rows);
+    setByPath(context, it.name, serializeItems(it.rows, it));
   }
   return context;
 }
@@ -478,12 +582,20 @@ async function loadDoc(name) {
     scalars: flattenScalars(ctx, fields),
     richFields,
     rich: flattenScalars(ctx, richFields),
-    iterables: iterables.map((it) => ({
-      name: it.name,
-      itemVar: it.itemVar || 'item',
-      fields: it.fields?.length ? it.fields : ['_value'],
-      rows: normalizeRows(getByPath(ctx, it.name), it.fields?.length ? it.fields : ['_value']),
-    })),
+    iterables: iterables.map((it) => {
+      const schema = {
+        name: it.name,
+        itemVar: it.itemVar || 'item',
+        kind: it.kind || 'rows',
+        fields: it.fields?.length ? it.fields : ['_value'],
+        richFields: it.richFields || [],
+        iterables: it.iterables || [],
+      };
+      return {
+        ...schema,
+        rows: normalizeItems(getByPath(ctx, it.name), schema),
+      };
+    }),
   };
   render();
 }

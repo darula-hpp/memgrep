@@ -46,12 +46,18 @@ export class DocsTools {
         for (const f of schema.richFields) lines.push(`  - {{ ${f} | rich }}`);
       }
       if (schema.iterables.length) {
-        lines.push('Iterables (table rows):');
-        for (const it of schema.iterables) {
-          lines.push(
-            `  - ${it.name} as ${it.itemVar} → ${it.fields.length ? it.fields.join(', ') : '(no item fields)'}`,
-          );
-        }
+        lines.push('Iterables:');
+        const walk = (it: (typeof schema.iterables)[number], indent: string) => {
+          const kind = it.kind === 'block' ? 'block' : 'rows';
+          const fields = it.fields.length ? it.fields.join(', ') : '(no item fields)';
+          const rich =
+            it.richFields?.length ? `; rich: ${it.richFields.join(', ')}` : '';
+          lines.push(`${indent}- [${kind}] ${it.name} as ${it.itemVar} → ${fields}${rich}`);
+          for (const nested of it.iterables ?? []) {
+            walk(nested, `${indent}  `);
+          }
+        };
+        for (const it of schema.iterables) walk(it, '  ');
       }
       if (!lines.length) {
         return {

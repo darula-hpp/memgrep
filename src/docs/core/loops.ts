@@ -1,4 +1,4 @@
-import { extractFieldNames, fillPlaceholdersInText, processParagraphsXml } from './placeholders.js';
+import { extractFieldNames, processParagraphsXml } from './placeholders.js';
 
 export type IterableSchema = {
   /** Collection path in context, e.g. attendees or meeting.attendees */
@@ -7,6 +7,12 @@ export type IterableSchema = {
   itemVar: string;
   /** Fields referenced as item.field (without the item. prefix) */
   fields: string[];
+  /** `| rich` fields on the item (without the item. prefix) */
+  richFields?: string[];
+  /** Nested iterables (e.g. steps under test_cases) */
+  iterables?: IterableSchema[];
+  /** Row loop inside a table vs whole-table/block loop */
+  kind?: 'rows' | 'block';
 };
 
 const FOR_RE = /\{\%\s*for\s+([a-zA-Z_]\w*)\s+in\s+([a-zA-Z_][\w.]*)\s*\%\}/;
@@ -68,10 +74,21 @@ function itemFieldsFromText(text: string, itemVar: string): string[] {
   for (const match of text.matchAll(re)) {
     fields.add(match[1]!);
   }
-  // Also allow bare {{ item }} as a single value field "_"
   const bare = new RegExp(`\\{\\{\\s*${itemVar}\\s*\\}\\}`);
   if (bare.test(text)) {
     fields.add('_value');
+  }
+  return [...fields].sort();
+}
+
+function itemRichFieldsFromText(text: string, itemVar: string): string[] {
+  const fields = new Set<string>();
+  const re = new RegExp(
+    `\\{\\{\\s*${itemVar}\\.([a-zA-Z_][\\w.]*)\\s*\\|\\s*rich\\s*\\}\\}`,
+    'g',
+  );
+  for (const match of text.matchAll(re)) {
+    fields.add(match[1]!);
   }
   return [...fields].sort();
 }
@@ -99,8 +116,7 @@ function getByPath(data: Record<string, unknown>, path: string): unknown {
 }
 
 function fillRowXml(rowXml: string, data: Record<string, unknown>): string {
-  // First strip loop tags from run text, then fill placeholders via paragraph processor.
-  let next = rowXml.replace(/<w:p\b[\s\S]*?<\/w:p>/g, (paragraph) => {
+  const next = rowXml.replace(/<w:p\b[\s\S]*?<\/w:p>/g, (paragraph) => {
     const joined = joinRunText(paragraph);
     if (!TAG_STRIP_RE.test(joined) && !/\{\{/.test(joined)) {
       TAG_STRIP_RE.lastIndex = 0;
@@ -111,6 +127,320 @@ function fillRowXml(rowXml: string, data: Record<string, unknown>): string {
     return replaceFragmentText(paragraph, stripped);
   });
   return processParagraphsXml(next, 'fill', data).xml;
+}
+
+function isLocalNameAt(xml: string, index: number, localName: string): boolean {
+  const tag = `<${localName}`;
+  if (!xml.startsWith(tag, index)) return false;
+  const next = xml[index + tag.length];
+  return next === '>' || next === '/' || next === ' ' || next === '\t' || next === '\n' || next === '\r';
+}
+
+/** End index (exclusive) of the element starting at `start`. */
+function findElementEnd(xml: string, start: number, localName: string): number {
+  let i = start;
+  let depth = 0;
+  while (i < xml.length) {
+    if (xml.startsWith(`</${localName}>`, i)) {
+      depth -= 1;
+      i += localName.length + 3;
+      if (depth === 0) return i;
+      continue;
+    }
+    if (isLocalNameAt(xml, i, localName)) {
+      const gt = xml.indexOf('>', i);
+      if (gt < 0) return xml.length;
+      const selfClosing = xml[gt - 1] === '/';
+      if (selfClosing) {
+        if (depth === 0) return gt + 1;
+        i = gt + 1;
+        continue;
+      }
+      depth += 1;
+      i = gt + 1;
+      continue;
+    }
+    i += 1;
+  }
+  return xml.length;
+}
+
+type BodyChild = {
+  tag: 'p' | 'tbl';
+  full: string;
+  start: number;
+  end: number;
+};
+
+/** Top-level `w:p` / `w:tbl` children of `w:body` (skips `w:sectPr`). */
+function listBodyChildren(xml: string): BodyChild[] {
+  const open = xml.match(/<w:body\b[^>]*>/);
+  if (!open || open.index == null) return [];
+  const start = open.index + open[0].length;
+  const close = xml.indexOf('</w:body>', start);
+  if (close < 0) return [];
+
+  const children: BodyChild[] = [];
+  let i = start;
+  while (i < close) {
+    while (i < close && /\s/.test(xml[i]!)) i += 1;
+    if (i >= close) break;
+
+    if (isLocalNameAt(xml, i, 'w:sectPr')) break;
+
+    if (isLocalNameAt(xml, i, 'w:tbl')) {
+      const end = findElementEnd(xml, i, 'w:tbl');
+      children.push({ tag: 'tbl', full: xml.slice(i, end), start: i, end });
+      i = end;
+      continue;
+    }
+    if (isLocalNameAt(xml, i, 'w:p')) {
+      const end = findElementEnd(xml, i, 'w:p');
+      children.push({ tag: 'p', full: xml.slice(i, end), start: i, end });
+      i = end;
+      continue;
+    }
+
+    // Skip unknown top-level node
+    const gt = xml.indexOf('>', i);
+    if (gt < 0) break;
+    const rawName = xml.slice(i + 1, gt).split(/[\s/]/)[0]!;
+    if (!rawName || xml[gt - 1] === '/') {
+      i = gt + 1;
+      continue;
+    }
+    i = findElementEnd(xml, i, rawName);
+  }
+  return children;
+}
+
+type BlockRange = {
+  startChild: number;
+  endChild: number;
+  itemVar: string;
+  collection: string;
+  forStart: number;
+  endforEnd: number;
+  bodyStart: number;
+  bodyEnd: number;
+};
+
+function findBlockRanges(children: BodyChild[]): BlockRange[] {
+  const ranges: BlockRange[] = [];
+  let open: { startChild: number; itemVar: string; collection: string } | null = null;
+
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i]!;
+    if (child.tag !== 'p') continue;
+    const text = joinRunText(child.full);
+    const forInfo = parseFor(text);
+    const hasEnd = ENDFOR_RE.test(text);
+    ENDFOR_RE.lastIndex = 0;
+
+    // Same-paragraph for+endfor cannot wrap a table → not a block loop
+    if (forInfo && hasEnd) continue;
+
+    if (forInfo) {
+      open = { startChild: i, itemVar: forInfo.itemVar, collection: forInfo.collection };
+      continue;
+    }
+    if (hasEnd && open) {
+      const interior = children.slice(open.startChild + 1, i);
+      const tableCount = interior.filter((c) => c.tag === 'tbl').length;
+      if (tableCount >= 1) {
+        const forChild = children[open.startChild]!;
+        const endChild = child;
+        const bodyStart = forChild.end;
+        const bodyEnd = endChild.start;
+        ranges.push({
+          startChild: open.startChild,
+          endChild: i,
+          itemVar: open.itemVar,
+          collection: open.collection,
+          forStart: forChild.start,
+          endforEnd: endChild.end,
+          bodyStart,
+          bodyEnd,
+        });
+      }
+      open = null;
+    }
+  }
+  return ranges;
+}
+
+function nestRowIterable(row: IterableSchema, outerItemVar: string): IterableSchema | null {
+  const prefix = `${outerItemVar}.`;
+  if (!row.name.startsWith(prefix)) return null;
+  return {
+    ...row,
+    name: row.name.slice(prefix.length),
+    kind: row.kind ?? 'rows',
+    fields: [...row.fields],
+    richFields: row.richFields ? [...row.richFields] : undefined,
+    iterables: row.iterables?.map((n) => ({ ...n, fields: [...n.fields] })),
+  };
+}
+
+function schemaFromBlockBody(
+  bodyXml: string,
+  itemVar: string,
+  collection: string,
+): IterableSchema {
+  const bodyText = joinRunText(bodyXml);
+  const richFields = itemRichFieldsFromText(bodyText, itemVar);
+  const richSet = new Set(richFields);
+  const fields = itemFieldsFromText(bodyText, itemVar).filter((f) => !richSet.has(f));
+
+  const rowed = processTableLoops(bodyXml, 'extract');
+  const nested: IterableSchema[] = [];
+  for (const row of rowed.iterables) {
+    const nestedIt = nestRowIterable(row, itemVar);
+    if (nestedIt) nested.push(nestedIt);
+  }
+  nested.sort((a, b) => a.name.localeCompare(b.name));
+
+  const nestedNames = new Set(nested.map((n) => n.name));
+  const filteredFields = fields
+    .filter((f) => {
+      if (nestedNames.has(f)) return false;
+      const root = f.split('.')[0]!;
+      if (nestedNames.has(root)) return false;
+      return true;
+    })
+    .sort();
+
+  return {
+    name: collection,
+    itemVar,
+    kind: 'block',
+    fields: filteredFields,
+    richFields: richFields.length ? richFields : undefined,
+    iterables: nested.length ? nested : undefined,
+  };
+}
+
+/**
+ * Expand / extract Nunjucks-style block loops that wrap whole tables
+ * (marker paragraphs immediately before/after one or more `<w:tbl>`).
+ */
+export function processBlockLoops(
+  xml: string,
+  mode: 'extract' | 'fill',
+  data: Record<string, unknown> = {},
+): { xml: string; iterables: IterableSchema[] } {
+  const children = listBodyChildren(xml);
+  const ranges = findBlockRanges(children);
+  if (ranges.length === 0) {
+    return { xml, iterables: [] };
+  }
+
+  const iterables = new Map<string, IterableSchema>();
+  for (const range of ranges) {
+    const bodyXml = xml.slice(range.bodyStart, range.bodyEnd);
+    const schema = schemaFromBlockBody(bodyXml, range.itemVar, range.collection);
+    const existing = iterables.get(schema.name);
+    if (existing) {
+      iterables.set(schema.name, mergeIterableSchema(existing, schema));
+    } else {
+      iterables.set(schema.name, schema);
+    }
+  }
+
+  if (mode === 'extract') {
+    return {
+      xml,
+      iterables: [...iterables.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  }
+
+  // Fill from the end so earlier offsets stay valid.
+  const sorted = [...ranges].sort((a, b) => b.forStart - a.forStart);
+  let nextXml = xml;
+  for (const range of sorted) {
+    const bodyXml = nextXml.slice(range.bodyStart, range.bodyEnd);
+    const collectionVal = getByPath(data, range.collection);
+    const items = Array.isArray(collectionVal) ? collectionVal : [];
+    const expanded: string[] = [];
+    for (const rawItem of items) {
+      const itemIsObj = rawItem && typeof rawItem === 'object' && !Array.isArray(rawItem);
+      const scoped: Record<string, unknown> = {
+        ...data,
+        [range.itemVar]: itemIsObj ? rawItem : rawItem,
+      };
+      const filled = processTableLoops(bodyXml, 'fill', scoped);
+      expanded.push(filled.xml);
+    }
+    nextXml =
+      nextXml.slice(0, range.forStart) + expanded.join('') + nextXml.slice(range.endforEnd);
+  }
+
+  return {
+    xml: nextXml,
+    iterables: [...iterables.values()].sort((a, b) => a.name.localeCompare(b.name)),
+  };
+}
+
+export function mergeIterableSchema(a: IterableSchema, b: IterableSchema): IterableSchema {
+  const fields = new Set([...a.fields, ...b.fields]);
+  const richFields = new Set([...(a.richFields ?? []), ...(b.richFields ?? [])]);
+  const nested = new Map<string, IterableSchema>();
+  for (const it of [...(a.iterables ?? []), ...(b.iterables ?? [])]) {
+    const existing = nested.get(it.name);
+    nested.set(it.name, existing ? mergeIterableSchema(existing, it) : cloneIterable(it));
+  }
+  return {
+    name: a.name,
+    itemVar: a.itemVar || b.itemVar,
+    kind: a.kind ?? b.kind,
+    fields: [...fields].sort(),
+    richFields: richFields.size ? [...richFields].sort() : undefined,
+    iterables: nested.size
+      ? [...nested.values()].sort((x, y) => x.name.localeCompare(y.name))
+      : undefined,
+  };
+}
+
+function cloneIterable(it: IterableSchema): IterableSchema {
+  return {
+    name: it.name,
+    itemVar: it.itemVar,
+    kind: it.kind,
+    fields: [...it.fields],
+    richFields: it.richFields ? [...it.richFields] : undefined,
+    iterables: it.iterables?.map(cloneIterable),
+  };
+}
+
+function stripIterableRefsFromFields(
+  fields: Set<string>,
+  richFields: Set<string>,
+  iterables: IterableSchema[],
+): void {
+  for (const it of iterables) {
+    fields.delete(it.itemVar);
+    richFields.delete(it.itemVar);
+    for (const f of it.fields) {
+      fields.delete(`${it.itemVar}.${f}`);
+      fields.delete(f);
+      if (f === '_value') fields.delete(it.itemVar);
+    }
+    for (const f of it.richFields ?? []) {
+      richFields.delete(`${it.itemVar}.${f}`);
+      richFields.delete(f);
+      fields.delete(`${it.itemVar}.${f}`);
+      fields.delete(f);
+    }
+    for (const f of [...fields]) {
+      if (f === it.itemVar || f.startsWith(`${it.itemVar}.`)) fields.delete(f);
+    }
+    for (const f of [...richFields]) {
+      if (f === it.itemVar || f.startsWith(`${it.itemVar}.`)) richFields.delete(f);
+    }
+    if (it.iterables?.length) {
+      stripIterableRefsFromFields(fields, richFields, it.iterables);
+    }
+  }
 }
 
 /**
@@ -172,7 +502,6 @@ export function processTableLoops(
     }
   }
 
-  // Collect schema from loop bodies; collect scalar fields from non-loop rows.
   const loopRowIndexes = new Set<number>();
   for (const range of ranges) {
     let bodyText = '';
@@ -180,18 +509,26 @@ export function processTableLoops(
       loopRowIndexes.add(i);
       bodyText += joinRunText(rows[i]!.full);
     }
-    const fields = itemFieldsFromText(bodyText, range.itemVar);
+    const richFields = itemRichFieldsFromText(bodyText, range.itemVar);
+    const richSet = new Set(richFields);
+    const fields = itemFieldsFromText(bodyText, range.itemVar).filter((f) => !richSet.has(f));
     const existing = iterables.get(range.collection);
     if (existing) {
       for (const f of fields) {
         if (!existing.fields.includes(f)) existing.fields.push(f);
       }
       existing.fields.sort();
+      if (richFields.length) {
+        const merged = new Set([...(existing.richFields ?? []), ...richFields]);
+        existing.richFields = [...merged].sort();
+      }
     } else {
       iterables.set(range.collection, {
         name: range.collection,
         itemVar: range.itemVar,
+        kind: 'rows',
         fields,
+        richFields: richFields.length ? richFields : undefined,
       });
     }
   }
@@ -203,7 +540,6 @@ export function processTableLoops(
   }
 
   if (mode === 'extract') {
-    // Also scan non-table paragraphs later via caller; here just return schema + unchanged xml.
     return {
       xml,
       iterables: [...iterables.values()].sort((a, b) => a.name.localeCompare(b.name)),
@@ -211,7 +547,6 @@ export function processTableLoops(
     };
   }
 
-  // Fill: rebuild XML replacing each loop range with expanded rows (process from end).
   const sorted = [...ranges].sort((a, b) => b.start - a.start);
   let nextXml = xml;
 
@@ -220,8 +555,6 @@ export function processTableLoops(
     const endRow = rows[range.end]!;
     const endIndex = endRow.index + endRow.full.length;
 
-    // Single-row loop: clone that row (tags stripped). Multi-row: clone interior rows only
-    // (marker rows with {% for %} / {% endfor %} are discarded).
     let templateRows: string[];
     if (range.start === range.end) {
       templateRows = [rows[range.start]!.full];
@@ -239,12 +572,9 @@ export function processTableLoops(
     const expanded: string[] = [];
     for (const rawItem of items) {
       const itemIsObj = rawItem && typeof rawItem === 'object' && !Array.isArray(rawItem);
-      const item = itemIsObj
-        ? (rawItem as Record<string, unknown>)
-        : { _value: rawItem };
       const scoped: Record<string, unknown> = {
         ...data,
-        [range.itemVar]: itemIsObj ? item : rawItem,
+        [range.itemVar]: itemIsObj ? rawItem : rawItem,
       };
 
       let filledBlock = '';
@@ -257,14 +587,10 @@ export function processTableLoops(
     nextXml = nextXml.slice(0, startIndex) + expanded.join('') + nextXml.slice(endIndex);
   }
 
-  // Re-process from original ranges was against original xml with descending order — good.
-  // Now fill remaining scalar placeholders in the expanded document.
   const filled = processParagraphsXml(nextXml, 'fill', data);
   for (const f of filled.fields) {
-    // Skip item.* style that leaked; scalars only for reporting
     if (!f.includes('.')) scalarFields.add(f);
     else {
-      // keep dotted scalars like meeting.date that aren't loop item fields
       const isItemRef = [...iterables.values()].some(
         (it) => f === it.itemVar || f.startsWith(`${it.itemVar}.`),
       );
@@ -285,36 +611,41 @@ export function extractLoopSchema(xml: string): {
   fields: string[];
   richFields: string[];
 } {
+  const blocked = processBlockLoops(xml, 'extract');
   const looped = processTableLoops(xml, 'extract');
   const paras = processParagraphsXml(xml, 'extract');
+
+  const blockItemVars = new Set(blocked.iterables.map((it) => it.itemVar));
+  const nestedCollectionNames = new Set<string>();
+  for (const block of blocked.iterables) {
+    for (const nested of block.iterables ?? []) {
+      nestedCollectionNames.add(`${block.itemVar}.${nested.name}`);
+    }
+  }
+
+  const topRows = looped.iterables.filter((it) => {
+    if (nestedCollectionNames.has(it.name)) return false;
+    for (const itemVar of blockItemVars) {
+      if (it.name === itemVar || it.name.startsWith(`${itemVar}.`)) return false;
+    }
+    return true;
+  });
+
+  const iterables = [...blocked.iterables, ...topRows].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
   const fields = new Set<string>([...looped.scalarFields, ...paras.fields]);
   const richFields = new Set<string>(paras.richFields);
 
-  // Remove item.field refs that belong to iterables from scalar list
-  for (const it of looped.iterables) {
-    fields.delete(it.itemVar);
-    for (const f of it.fields) {
-      fields.delete(`${it.itemVar}.${f}`);
-      if (f === '_value') fields.delete(it.itemVar);
-    }
-  }
+  stripIterableRefsFromFields(fields, richFields, iterables);
 
-  // Filter paragraph fields that are clearly loop item refs
-  for (const f of [...fields]) {
-    for (const it of looped.iterables) {
-      if (f === it.itemVar || f.startsWith(`${it.itemVar}.`)) {
-        fields.delete(f);
-      }
-    }
-  }
-
-  // Rich fields are not plain scalars
   for (const f of richFields) {
     fields.delete(f);
   }
 
   return {
-    iterables: looped.iterables,
+    iterables,
     fields: [...fields].sort(),
     richFields: [...richFields].sort(),
   };

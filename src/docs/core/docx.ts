@@ -1,5 +1,11 @@
 import JSZip from 'jszip';
-import { extractLoopSchema, processTableLoops, type IterableSchema } from './loops.js';
+import {
+  extractLoopSchema,
+  mergeIterableSchema,
+  processBlockLoops,
+  processTableLoops,
+  type IterableSchema,
+} from './loops.js';
 import { nestDottedKeys } from './placeholders.js';
 
 const WORD_XML_PATH =
@@ -34,14 +40,11 @@ export async function extractFields(docx: Buffer | Uint8Array): Promise<ExtractR
     for (const f of schema.richFields) richFields.add(f);
     for (const it of schema.iterables) {
       const existing = iterables.get(it.name);
-      if (!existing) {
-        iterables.set(it.name, { ...it, fields: [...it.fields] });
-        continue;
-      }
-      for (const f of it.fields) {
-        if (!existing.fields.includes(f)) existing.fields.push(f);
-      }
-      existing.fields.sort();
+      iterables.set(it.name, existing ? mergeIterableSchema(existing, it) : mergeIterableSchema(it, {
+        name: it.name,
+        itemVar: it.itemVar,
+        fields: [],
+      }));
     }
   }
 
@@ -64,8 +67,10 @@ export async function fillDocument(
 
   for (const xmlPath of listWordXmlPaths(zip)) {
     const xml = await zip.file(xmlPath)!.async('string');
-    // Expands {% for %} table rows when present, then fills {{ }} / {{ | rich }}.
-    const looped = processTableLoops(xml, 'fill', nested);
+    // 1) Expand block/table loops (each clone gets scoped row-loop fill).
+    // 2) Expand any remaining top-level row loops + scalar / | rich fills.
+    const blocked = processBlockLoops(xml, 'fill', nested);
+    const looped = processTableLoops(blocked.xml, 'fill', nested);
     zip.file(xmlPath, looped.xml);
   }
 
